@@ -12,6 +12,7 @@ class Usuario
 
     // ============================================================
     // OBTENER TODOS LOS USUARIOS
+    // USUARIOS NUEVOS PRIMERO
     // ============================================================
 
     public function obtenerTodos()
@@ -35,12 +36,53 @@ class Usuario
                 INNER JOIN rol r
                     ON u.id_rol = r.id_rol
 
-                ORDER BY p.nombre ASC";
+                ORDER BY u.id_usuario DESC";
 
         $stmt = $this->conn->prepare($sql);
         $stmt->execute();
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+
+    // ============================================================
+    // OBTENER USUARIO POR ID
+    // ============================================================
+
+    public function obtenerPorId($id_usuario)
+    {
+        $sql = "SELECT
+                    u.id_usuario,
+                    u.estado AS estado_usuario,
+                    u.id_rol,
+                    u.id_persona,
+
+                    p.nombre,
+                    p.telefono,
+                    p.correo,
+                    p.estado AS estado_persona,
+
+                    r.nombre AS nombre_rol
+
+                FROM usuario u
+
+                INNER JOIN persona p
+                    ON u.id_persona = p.id_persona
+
+                INNER JOIN rol r
+                    ON u.id_rol = r.id_rol
+
+                WHERE u.id_usuario = ?
+
+                LIMIT 1";
+
+        $stmt = $this->conn->prepare($sql);
+
+        $stmt->execute([
+            (int)$id_usuario
+        ]);
+
+        return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
 
@@ -62,18 +104,14 @@ class Usuario
     {
         $sql = "SELECT id_persona
                 FROM persona
-                WHERE correo = :correo
+                WHERE correo = ?
                 LIMIT 1";
 
         $stmt = $this->conn->prepare($sql);
 
-        $stmt->bindValue(
-            ':correo',
-            $correo,
-            PDO::PARAM_STR
-        );
-
-        $stmt->execute();
+        $stmt->execute([
+            $correo
+        ]);
 
         return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
     }
@@ -81,16 +119,6 @@ class Usuario
 
     // ============================================================
     // OBTENER USUARIO POR CORREO
-    // ============================================================
-    //
-    // EL LOGIN UTILIZA:
-    //
-    // correo
-    // contraseña
-    //
-    // El correo está en persona.
-    // La contraseña está en usuario.
-    //
     // ============================================================
 
     public function obtenerPorEmail($email)
@@ -118,19 +146,15 @@ class Usuario
                 INNER JOIN rol r
                     ON u.id_rol = r.id_rol
 
-                WHERE p.correo = :email
+                WHERE p.correo = ?
 
                 LIMIT 1";
 
         $stmt = $this->conn->prepare($sql);
 
-        $stmt->bindValue(
-            ':email',
-            $email,
-            PDO::PARAM_STR
-        );
-
-        $stmt->execute();
+        $stmt->execute([
+            $email
+        ]);
 
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
@@ -145,11 +169,6 @@ class Usuario
         try {
 
             $this->conn->beginTransaction();
-
-
-            // ====================================================
-            // RECIBIR DATOS
-            // ====================================================
 
             $nombre = trim(
                 $datos['nombre'] ?? ''
@@ -170,10 +189,6 @@ class Usuario
                 $datos['confirmar_password'] ?? '';
 
 
-            // ====================================================
-            // VALIDAR NOMBRE
-            // ====================================================
-
             if ($nombre === '') {
 
                 $this->conn->rollBack();
@@ -181,10 +196,6 @@ class Usuario
                 return 'El nombre es obligatorio.';
             }
 
-
-            // ====================================================
-            // VALIDAR CORREO
-            // ====================================================
 
             if ($correo === '') {
 
@@ -205,10 +216,6 @@ class Usuario
             }
 
 
-            // ====================================================
-            // VALIDAR CONTRASEÑA
-            // ====================================================
-
             if ($password === '') {
 
                 $this->conn->rollBack();
@@ -216,10 +223,6 @@ class Usuario
                 return 'La contraseña es obligatoria.';
             }
 
-
-            // ====================================================
-            // VALIDAR CONFIRMACIÓN
-            // ====================================================
 
             if ($confirmarPassword === '') {
 
@@ -237,22 +240,7 @@ class Usuario
             }
 
 
-            // ====================================================
-            // VERIFICAR CORREO EXISTENTE
-            // ====================================================
-
-            $stmtCorreo = $this->conn->prepare(
-                "SELECT id_persona
-                 FROM persona
-                 WHERE correo = ?
-                 LIMIT 1"
-            );
-
-            $stmtCorreo->execute([
-                $correo
-            ]);
-
-            if ($stmtCorreo->fetch(PDO::FETCH_ASSOC)) {
+            if ($this->existeCorreo($correo)) {
 
                 $this->conn->rollBack();
 
@@ -260,19 +248,11 @@ class Usuario
             }
 
 
-            // ====================================================
-            // ROL POR DEFECTO
-            // ====================================================
-
             $rol = 1;
 
 
-            // ====================================================
-            // VERIFICAR ROL
-            // ====================================================
-
             $stmtRol = $this->conn->prepare(
-                "SELECT id_rol, nombre
+                "SELECT id_rol
                  FROM rol
                  WHERE id_rol = ?
                  LIMIT 1"
@@ -282,20 +262,14 @@ class Usuario
                 $rol
             ]);
 
-            $rolBD =
-                $stmtRol->fetch(PDO::FETCH_ASSOC);
 
-            if (!$rolBD) {
+            if (!$stmtRol->fetch(PDO::FETCH_ASSOC)) {
 
                 $this->conn->rollBack();
 
-                return 'No existe el rol Administrador en la base de datos.';
+                return 'No existe el rol Administrador.';
             }
 
-
-            // ====================================================
-            // INSERTAR PERSONA
-            // ====================================================
 
             $sqlPersona = "INSERT INTO persona
                             (
@@ -306,54 +280,21 @@ class Usuario
                             )
                            VALUES
                             (
-                                :nombre,
-                                :telefono,
-                                :correo,
+                                ?,
+                                ?,
+                                ?,
                                 1
                             )";
 
             $stmtPersona =
                 $this->conn->prepare($sqlPersona);
 
-
-            $stmtPersona->bindValue(
-                ':nombre',
+            $stmtPersona->execute([
                 $nombre,
-                PDO::PARAM_STR
-            );
+                $telefono !== '' ? $telefono : null,
+                $correo
+            ]);
 
-
-            if ($telefono === '') {
-
-                $stmtPersona->bindValue(
-                    ':telefono',
-                    null,
-                    PDO::PARAM_NULL
-                );
-
-            } else {
-
-                $stmtPersona->bindValue(
-                    ':telefono',
-                    $telefono,
-                    PDO::PARAM_STR
-                );
-            }
-
-
-            $stmtPersona->bindValue(
-                ':correo',
-                $correo,
-                PDO::PARAM_STR
-            );
-
-
-            $stmtPersona->execute();
-
-
-            // ====================================================
-            // OBTENER ID PERSONA
-            // ====================================================
 
             $id_persona =
                 $this->conn->lastInsertId();
@@ -362,14 +303,10 @@ class Usuario
             if (!$id_persona) {
 
                 throw new Exception(
-                    'No se pudo obtener el id_persona generado.'
+                    'No se pudo crear la persona.'
                 );
             }
 
-
-            // ====================================================
-            // ENCRIPTAR CONTRASEÑA
-            // ====================================================
 
             $passwordHash =
                 password_hash(
@@ -378,17 +315,13 @@ class Usuario
                 );
 
 
-            if ($passwordHash === false) {
+            if (!$passwordHash) {
 
                 throw new Exception(
                     'No se pudo encriptar la contraseña.'
                 );
             }
 
-
-            // ====================================================
-            // INSERTAR USUARIO
-            // ====================================================
 
             $sqlUsuario = "INSERT INTO usuario
                             (
@@ -399,43 +332,21 @@ class Usuario
                             )
                            VALUES
                             (
-                                :password,
-                                :id_persona,
-                                :id_rol,
+                                ?,
+                                ?,
+                                ?,
                                 1
                             )";
 
             $stmtUsuario =
                 $this->conn->prepare($sqlUsuario);
 
-
-            $stmtUsuario->bindValue(
-                ':password',
+            $stmtUsuario->execute([
                 $passwordHash,
-                PDO::PARAM_STR
-            );
-
-
-            $stmtUsuario->bindValue(
-                ':id_persona',
                 $id_persona,
-                PDO::PARAM_INT
-            );
+                $rol
+            ]);
 
-
-            $stmtUsuario->bindValue(
-                ':id_rol',
-                $rol,
-                PDO::PARAM_INT
-            );
-
-
-            $stmtUsuario->execute();
-
-
-            // ====================================================
-            // CONFIRMAR
-            // ====================================================
 
             $this->conn->commit();
 
@@ -448,84 +359,143 @@ class Usuario
                 $this->conn->rollBack();
             }
 
-            return 'Error al registrar: '
-                . $e->getMessage();
+            return 'Error al registrar: ' .
+                $e->getMessage();
         }
     }
 
 
     // ============================================================
-    // ELIMINAR USUARIO + PERSONA
+    // CAMBIAR ESTADO
     // ============================================================
 
-    public function eliminarCompleto($id_usuario)
-    {
+    public function cambiarEstado(
+        $id_usuario,
+        $estado
+    ) {
         try {
 
-            $this->conn->beginTransaction();
+            $id_usuario = (int)$id_usuario;
+            $estado = (int)$estado;
 
+
+            if ($id_usuario <= 0) {
+                return 'Usuario no válido.';
+            }
+
+
+            if ($estado !== 0 && $estado !== 1) {
+                return 'Estado no válido.';
+            }
+
+
+            /*
+             * Primero buscamos el usuario.
+             * Esto evita depender de una subconsulta
+             * al momento de actualizar persona.
+             */
 
             $stmt = $this->conn->prepare(
-                "SELECT id_persona
+                "SELECT
+                    id_usuario,
+                    id_persona,
+                    estado
                  FROM usuario
-                 WHERE id_usuario = ?"
+                 WHERE id_usuario = ?
+                 LIMIT 1"
             );
 
             $stmt->execute([
                 $id_usuario
             ]);
 
-            $data =
+
+            $usuario =
                 $stmt->fetch(PDO::FETCH_ASSOC);
 
 
-            if (!$data) {
-
-                $this->conn->rollBack();
+            if (!$usuario) {
 
                 return 'Usuario no encontrado.';
             }
 
 
             $id_persona =
-                $data['id_persona'];
+                (int)$usuario['id_persona'];
 
+
+            /*
+             * Actualizamos usuario.
+             */
 
             $stmtUsuario =
                 $this->conn->prepare(
-                    "DELETE FROM usuario
+                    "UPDATE usuario
+                     SET estado = ?
                      WHERE id_usuario = ?"
                 );
 
+
             $stmtUsuario->execute([
+                $estado,
                 $id_usuario
             ]);
 
 
+            /*
+             * Actualizamos persona.
+             */
+
             $stmtPersona =
                 $this->conn->prepare(
-                    "DELETE FROM persona
+                    "UPDATE persona
+                     SET estado = ?
                      WHERE id_persona = ?"
                 );
 
+
             $stmtPersona->execute([
+                $estado,
                 $id_persona
             ]);
 
 
-            $this->conn->commit();
+            /*
+             * Verificamos que usuario sí haya quedado
+             * con el nuevo estado.
+             */
+
+            $stmtVerificar =
+                $this->conn->prepare(
+                    "SELECT estado
+                     FROM usuario
+                     WHERE id_usuario = ?
+                     LIMIT 1"
+                );
+
+
+            $stmtVerificar->execute([
+                $id_usuario
+            ]);
+
+
+            $estadoBD =
+                $stmtVerificar->fetchColumn();
+
+
+            if ((int)$estadoBD !== $estado) {
+
+                return 'No se pudo actualizar el estado del usuario.';
+            }
+
 
             return true;
 
 
         } catch (Exception $e) {
 
-            if ($this->conn->inTransaction()) {
-                $this->conn->rollBack();
-            }
-
-            return 'Error al eliminar: '
-                . $e->getMessage();
+            return 'Error al cambiar estado: ' .
+                $e->getMessage();
         }
     }
 
@@ -542,18 +512,42 @@ class Usuario
     ) {
         try {
 
+            $id = (int)$id;
+            $rol = (int)$rol;
+
+            $nombre = trim($nombre);
+            $telefono = trim($telefono);
+
+
+            if ($id <= 0) {
+                return 'Usuario no válido.';
+            }
+
+
+            if ($nombre === '') {
+                return 'El nombre es obligatorio.';
+            }
+
+
+            if ($rol <= 0) {
+                return 'Debe seleccionar un rol.';
+            }
+
+
             $this->conn->beginTransaction();
 
 
             $stmt = $this->conn->prepare(
                 "SELECT id_persona
                  FROM usuario
-                 WHERE id_usuario = ?"
+                 WHERE id_usuario = ?
+                 LIMIT 1"
             );
 
             $stmt->execute([
                 $id
             ]);
+
 
             $data =
                 $stmt->fetch(PDO::FETCH_ASSOC);
@@ -568,7 +562,7 @@ class Usuario
 
 
             $id_persona =
-                $data['id_persona'];
+                (int)$data['id_persona'];
 
 
             $stmtPersona =
@@ -579,9 +573,10 @@ class Usuario
                      WHERE id_persona = ?"
                 );
 
+
             $stmtPersona->execute([
                 $nombre,
-                $telefono,
+                $telefono !== '' ? $telefono : null,
                 $id_persona
             ]);
 
@@ -592,6 +587,7 @@ class Usuario
                      SET id_rol = ?
                      WHERE id_usuario = ?"
                 );
+
 
             $stmtUsuario->execute([
                 $rol,
@@ -610,187 +606,186 @@ class Usuario
                 $this->conn->rollBack();
             }
 
-            return 'Error al editar: '
-                . $e->getMessage();
+            return 'Error al editar: ' .
+                $e->getMessage();
         }
     }
 
 
-// ============================================================
-// CAMBIAR ESTADO
-// ============================================================
+    // ============================================================
+    // CAMBIAR CONTRASEÑA
+    // ============================================================
 
-public function cambiarEstado(
-    $id_usuario,
-    $estado
-) {
+    public function cambiarPassword(
+        $id_usuario,
+        $password
+    ) {
+        try {
 
-    try {
+            $id_usuario = (int)$id_usuario;
 
 
-        /*
-         * ACEPTAR:
-         *
-         * 1
-         * 0
-         * activo
-         * inactivo
-         *
-         * Y CONVERTIR TODO A 1 / 0
-         */
+            if ($id_usuario <= 0) {
+                return 'Usuario no válido.';
+            }
 
-        if (is_string($estado)) {
 
-            $estado =
-                strtolower(
-                    trim($estado)
+            if ($password === '') {
+                return true;
+            }
+
+
+            $hash =
+                password_hash(
+                    $password,
+                    PASSWORD_DEFAULT
                 );
 
 
-            if (
-                $estado === 'activo' ||
-                $estado === '1'
-            ) {
-
-                $estado = 1;
-
-            } elseif (
-                $estado === 'inactivo' ||
-                $estado === '0'
-            ) {
-
-                $estado = 0;
-
-            } else {
-
-                return 'Estado no válido.';
-
-            }
-
-        } else {
+            $stmt =
+                $this->conn->prepare(
+                    "UPDATE usuario
+                     SET `contraseña` = ?
+                     WHERE id_usuario = ?"
+                );
 
 
-            $estado =
-                intval($estado);
+            $stmt->execute([
+                $hash,
+                $id_usuario
+            ]);
 
 
-            if (
-                $estado !== 0 &&
-                $estado !== 1
-            ) {
+            return true;
 
-                return 'El estado debe ser 0 o 1.';
 
-            }
+        } catch (Exception $e) {
 
+            return 'Error al cambiar contraseña: ' .
+                $e->getMessage();
         }
-
-
-        /*
-         * VALIDAR ID
-         */
-
-        $id_usuario =
-            intval($id_usuario);
-
-
-        if ($id_usuario <= 0) {
-
-            return 'Usuario no válido.';
-
-        }
-
-
-        /*
-         * INICIAR TRANSACCIÓN
-         */
-
-        $this->conn->beginTransaction();
-
-
-        /*
-         * ACTUALIZAR USUARIO
-         */
-
-        $stmtUsuario =
-            $this->conn->prepare(
-
-                "UPDATE usuario
-                 SET estado = ?
-                 WHERE id_usuario = ?"
-
-            );
-
-
-        $stmtUsuario->execute([
-
-            $estado,
-
-            $id_usuario
-
-        ]);
-
-
-        /*
-         * ACTUALIZAR PERSONA
-         */
-
-        $stmtPersona =
-            $this->conn->prepare(
-
-                "UPDATE persona
-                 SET estado = ?
-                 WHERE id_persona = (
-                     SELECT id_persona
-                     FROM usuario
-                     WHERE id_usuario = ?
-                 )"
-
-            );
-
-
-        $stmtPersona->execute([
-
-            $estado,
-
-            $id_usuario
-
-        ]);
-
-
-        /*
-         * CONFIRMAR
-         */
-
-        $this->conn->commit();
-
-
-        return true;
-
-
-    } catch (Exception $e) {
-
-
-        /*
-         * CANCELAR SI HUBO ERROR
-         */
-
-        if (
-            $this->conn->inTransaction()
-        ) {
-
-            $this->conn->rollBack();
-
-        }
-
-
-        return
-            'Error al cambiar estado: ' .
-            $e->getMessage();
-
     }
 
-}
+
+    // ============================================================
+    // ELIMINAR USUARIO
+    // ============================================================
+
+    public function eliminarCompleto($id_usuario)
+    {
+        try {
+
+            $id_usuario = (int)$id_usuario;
+
+
+            if ($id_usuario <= 0) {
+                return 'Usuario no válido.';
+            }
+
+
+            $stmt = $this->conn->prepare(
+                "SELECT id_persona
+                 FROM usuario
+                 WHERE id_usuario = ?
+                 LIMIT 1"
+            );
+
+
+            $stmt->execute([
+                $id_usuario
+            ]);
+
+
+            $data =
+                $stmt->fetch(PDO::FETCH_ASSOC);
+
+
+            if (!$data) {
+                return 'Usuario no encontrado.';
+            }
+
+
+            $id_persona =
+                (int)$data['id_persona'];
+
+
+            try {
+
+                $stmtCompra =
+                    $this->conn->prepare(
+                        "SELECT COUNT(*) AS total
+                         FROM compra
+                         WHERE id_usuario = ?"
+                    );
+
+
+                $stmtCompra->execute([
+                    $id_usuario
+                ]);
+
+
+                $compra =
+                    $stmtCompra->fetch(PDO::FETCH_ASSOC);
+
+
+                if (
+                    $compra &&
+                    (int)$compra['total'] > 0
+                ) {
+
+                    return 'No se puede eliminar este usuario porque tiene compras registradas. Puedes desactivarlo en lugar de eliminarlo.';
+                }
+
+            } catch (Exception $e) {
+
+                // Si compra no existe, continuar.
+            }
+
+
+            $this->conn->beginTransaction();
+
+
+            $stmtUsuario =
+                $this->conn->prepare(
+                    "DELETE FROM usuario
+                     WHERE id_usuario = ?"
+                );
+
+
+            $stmtUsuario->execute([
+                $id_usuario
+            ]);
+
+
+            $stmtPersona =
+                $this->conn->prepare(
+                    "DELETE FROM persona
+                     WHERE id_persona = ?"
+                );
+
+
+            $stmtPersona->execute([
+                $id_persona
+            ]);
+
+
+            $this->conn->commit();
+
+
+            return true;
+
+
+        } catch (Exception $e) {
+
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollBack();
+            }
+
+            return 'Error al eliminar: ' .
+                $e->getMessage();
+        }
+    }
+
 
     // ============================================================
     // OBTENER ROLES
@@ -807,7 +802,9 @@ public function cambiarEstado(
                  ORDER BY nombre ASC"
             );
 
+
         $stmt->execute();
+
 
         return $stmt->fetchAll(
             PDO::FETCH_ASSOC

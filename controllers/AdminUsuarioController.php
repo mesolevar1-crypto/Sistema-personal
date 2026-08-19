@@ -2,467 +2,434 @@
 
 session_start();
 
+
+// ============================================================
+// VERIFICAR ADMINISTRADOR
+// ============================================================
+
+if (
+    !isset($_SESSION['usuario']) ||
+    ($_SESSION['usuario']['rol'] ?? '') !== 'Administrador'
+) {
+
+    header('Location: ../views/usuarios/login.php');
+    exit;
+}
+
+
+// ============================================================
+// CONEXIÓN
+// ============================================================
+
 require_once __DIR__ . '/../config/databse.php';
 require_once __DIR__ . '/../models/usuario.php';
 
 
-/* =====================================================
-   VERIFICAR SESIÓN
-===================================================== */
+try {
 
-if (!isset($_SESSION['usuario'])) {
+    $database = new Database();
 
-    header("Location: ../views/usuarios/login.php");
+    $db = $database->conectar();
+
+    $usuarioModel = new Usuario($db);
+
+} catch (Exception $e) {
+
+    $_SESSION['alert'] = [
+        'icon' => 'error',
+        'title' => 'Error',
+        'text' => 'No se pudo conectar con la base de datos.'
+    ];
+
+    header('Location: ../views/dashboard/admin.php');
     exit;
 }
 
 
-/* =====================================================
-   VERIFICAR ADMINISTRADOR
-===================================================== */
+// ============================================================
+// RUTA CORRECTA DEL ADMIN
+// ============================================================
 
-if (
-    !isset($_SESSION['usuario']['rol']) ||
-    strtolower(trim($_SESSION['usuario']['rol'])) !== 'administrador'
-) {
-
-    header("Location: ../views/usuarios/login.php");
-    exit;
-}
+$rutaAdmin = '../views/dashboard/admin.php';
 
 
-/* =====================================================
-   CONEXIÓN
-===================================================== */
-
-$database = new Database();
-
-$db = $database->conectar();
-
-$usuarioModel = new Usuario($db);
-
+// ============================================================
+// ACCIÓN
+// ============================================================
 
 $accion = $_GET['accion'] ?? '';
 
 
-switch ($accion) {
+// ============================================================
+// ACTIVAR / DESACTIVAR
+// ============================================================
+
+if ($accion === 'toggleEstado') {
+
+    $id = isset($_GET['id'])
+        ? (int) $_GET['id']
+        : 0;
 
 
-    /* =====================================================
-       EDITAR
-    ===================================================== */
+    if ($id <= 0) {
 
-    case 'editar':
+        $_SESSION['alert'] = [
+            'icon' => 'error',
+            'title' => 'Error',
+            'text' => 'Usuario no válido.'
+        ];
 
-        $id = intval($_POST['id_usuario'] ?? 0);
-
-        $nombre = trim(
-            $_POST['nombre'] ?? ''
-        );
-
-        $telefono = trim(
-            $_POST['telefono'] ?? ''
-        );
-
-        $rol = intval(
-            $_POST['rol'] ?? 0
-        );
-
-
-        if (
-            $id <= 0 ||
-            $nombre === '' ||
-            $rol <= 0
-        ) {
-
-            $_SESSION['alert'] = [
-
-                'icon' => 'warning',
-
-                'title' => 'Datos inválidos',
-
-                'text' => 'Verifica los datos del usuario.'
-
-            ];
-
-        } else {
-
-
-            $resultado =
-                $usuarioModel->editarCompleto(
-
-                    $id,
-
-                    $nombre,
-
-                    $telefono,
-
-                    $rol
-
-                );
-
-
-            $_SESSION['alert'] = [
-
-                'icon' =>
-                    $resultado === true
-                    ? 'success'
-                    : 'error',
-
-                'title' =>
-                    $resultado === true
-                    ? '¡Usuario actualizado!'
-                    : 'Error',
-
-                'text' =>
-                    $resultado === true
-                    ? 'Los datos fueron actualizados correctamente.'
-                    : $resultado
-
-            ];
-
-        }
-
-
-        header(
-            "Location: ../views/dashboard/admin.php"
-        );
-
+        header("Location: $rutaAdmin");
         exit;
+    }
 
 
+    // --------------------------------------------------------
+    // OBTENER USUARIO
+    // --------------------------------------------------------
 
-    /* =====================================================
-       ACTIVAR / DESACTIVAR
-    ===================================================== */
+    $usuario = $usuarioModel->obtenerPorId($id);
 
-    case 'toggleEstado':
 
+    if (!$usuario) {
 
-        /*
-         * ID DEL USUARIO
-         */
+        $_SESSION['alert'] = [
+            'icon' => 'error',
+            'title' => 'Error',
+            'text' => 'El usuario no existe.'
+        ];
 
-        $id = intval(
-            $_GET['id'] ?? 0
-        );
-
-
-        /*
-         * ESTADO ACTUAL
-         *
-         * Puede llegar como:
-         *
-         * activo
-         * inactivo
-         * 1
-         * 0
-         */
-
-        $estadoActual =
-            strtolower(
-                trim(
-                    $_GET['estado'] ?? 'activo'
-                )
-            );
-
-
-        /*
-         * VALIDAR ID
-         */
-
-        if ($id <= 0) {
-
-            $_SESSION['alert'] = [
-
-                'icon' => 'error',
-
-                'title' => 'Error',
-
-                'text' => 'Usuario no válido.'
-
-            ];
-
-
-            header(
-                "Location: ../views/dashboard/admin.php"
-            );
-
-            exit;
-        }
-
-
-        /*
-         * NORMALIZAR ESTADO ACTUAL
-         */
-
-        if (
-            $estadoActual === '1' ||
-            $estadoActual === 'activo'
-        ) {
-
-            $estadoActual = 'activo';
-
-        } else {
-
-            $estadoActual = 'inactivo';
-
-        }
-
-
-        /*
-         * NO PERMITIR DESACTIVAR
-         * LA PROPIA CUENTA
-         */
-
-        if (
-            $id ===
-            intval(
-                $_SESSION['usuario']['id_usuario']
-            )
-            &&
-            $estadoActual === 'activo'
-        ) {
-
-            $_SESSION['alert'] = [
-
-                'icon' => 'warning',
-
-                'title' => 'Acción no permitida',
-
-                'text' =>
-                    'No puedes desactivar tu propia cuenta.'
-
-            ];
-
-
-            header(
-                "Location: ../views/dashboard/admin.php"
-            );
-
-            exit;
-        }
-
-
-        /*
-         * CAMBIAR ESTADO
-         *
-         * ACTIVO -> INACTIVO
-         *
-         * INACTIVO -> ACTIVO
-         */
-
-        if ($estadoActual === 'activo') {
-
-            $nuevoEstado = 'inactivo';
-
-        } else {
-
-            $nuevoEstado = 'activo';
-
-        }
-
-
-        /*
-         * ACTUALIZAR EN LA BASE DE DATOS
-         */
-
-        $resultado =
-            $usuarioModel->cambiarEstado(
-
-                $id,
-
-                $nuevoEstado
-
-            );
-
-
-        /*
-         * MOSTRAR RESULTADO
-         */
-
-        if ($resultado === true) {
-
-            if ($nuevoEstado === 'activo') {
-
-                $_SESSION['alert'] = [
-
-                    'icon' => 'success',
-
-                    'title' => '¡Usuario activado!',
-
-                    'text' =>
-                        'El usuario ahora está activo.'
-
-                ];
-
-            } else {
-
-                $_SESSION['alert'] = [
-
-                    'icon' => 'success',
-
-                    'title' => '¡Usuario desactivado!',
-
-                    'text' =>
-                        'El usuario ahora está inactivo.'
-
-                ];
-
-            }
-
-        } else {
-
-            $_SESSION['alert'] = [
-
-                'icon' => 'error',
-
-                'title' => 'Error',
-
-                'text' => $resultado
-
-            ];
-
-        }
-
-
-        /*
-         * VOLVER AL PANEL
-         */
-
-        header(
-            "Location: ../views/dashboard/admin.php"
-        );
-
+        header("Location: $rutaAdmin");
         exit;
+    }
 
 
+    // --------------------------------------------------------
+    // ESTADO ACTUAL
+    // --------------------------------------------------------
 
-    /* =====================================================
-       ELIMINAR
-    ===================================================== */
-
-    case 'eliminar':
-
-
-        $id = intval(
-            $_GET['id'] ?? 0
-        );
+    $estadoActual = (int) (
+        $usuario['estado_usuario']
+        ?? $usuario['estado']
+        ?? 0
+    );
 
 
-        if ($id <= 0) {
+    // 1 = activo
+    // 0 = inactivo
+
+    $nuevoEstado = ($estadoActual === 1)
+        ? 0
+        : 1;
 
 
-            $_SESSION['alert'] = [
+    // --------------------------------------------------------
+    // CAMBIAR ESTADO
+    // --------------------------------------------------------
 
-                'icon' => 'error',
-
-                'title' => 'Error',
-
-                'text' => 'Usuario no válido.'
-
-            ];
-
-
-        } elseif (
-
-            $id ===
-            intval(
-                $_SESSION['usuario']['id_usuario']
-            )
-
-        ) {
+    $resultado = $usuarioModel->cambiarEstado(
+        $id,
+        $nuevoEstado
+    );
 
 
-            $_SESSION['alert'] = [
+    if ($resultado === true) {
 
-                'icon' => 'warning',
+        $_SESSION['alert'] = [
 
-                'title' => 'Acción no permitida',
+            'icon' => 'success',
 
-                'text' =>
-                    'No puedes eliminar tu propia cuenta.'
+            'title' => ($nuevoEstado === 1)
+                ? 'Usuario activado'
+                : 'Usuario desactivado',
 
-            ];
+            'text' => ($nuevoEstado === 1)
+                ? 'El usuario fue activado correctamente.'
+                : 'El usuario fue desactivado correctamente.'
+        ];
 
+    } else {
 
-        } else {
+        $_SESSION['alert'] = [
 
+            'icon' => 'error',
 
-            $resultado =
-                $usuarioModel->eliminarCompleto(
-                    $id
-                );
+            'title' => 'Error',
 
-
-            $_SESSION['alert'] = [
-
-                'icon' =>
-                    $resultado === true
-                    ? 'success'
-                    : 'error',
-
-                'title' =>
-                    $resultado === true
-                    ? '¡Usuario eliminado!'
-                    : 'Error',
-
-                'text' =>
-                    $resultado === true
-                    ? 'El usuario fue eliminado correctamente.'
-                    : $resultado
-
-            ];
-
-        }
+            'text' => is_string($resultado)
+                ? $resultado
+                : 'No se pudo cambiar el estado del usuario.'
+        ];
+    }
 
 
-        header(
-            "Location: ../views/dashboard/admin.php"
-        );
-
-        exit;
-
-
-
-    /* =====================================================
-       LISTAR
-    ===================================================== */
-
-    case 'listar':
-
-
-        $usuarios =
-            $usuarioModel->obtenerTodos();
-
-
-        header(
-            'Content-Type: application/json'
-        );
-
-
-        echo json_encode(
-            $usuarios
-        );
-
-
-        exit;
-
-
-
-    /* =====================================================
-       DEFAULT
-    ===================================================== */
-
-    default:
-
-
-        header(
-            "Location: ../views/dashboard/admin.php"
-        );
-
-        exit;
-
+    header("Location: $rutaAdmin");
+    exit;
 }
+
+
+// ============================================================
+// ELIMINAR
+// ============================================================
+
+if ($accion === 'eliminar') {
+
+    $id = isset($_GET['id'])
+        ? (int) $_GET['id']
+        : 0;
+
+
+    if ($id <= 0) {
+
+        $_SESSION['alert'] = [
+            'icon' => 'error',
+            'title' => 'Error',
+            'text' => 'Usuario no válido.'
+        ];
+
+        header("Location: $rutaAdmin");
+        exit;
+    }
+
+
+    // --------------------------------------------------------
+    // ELIMINAR
+    // --------------------------------------------------------
+
+    $resultado = $usuarioModel->eliminarCompleto($id);
+
+
+    if ($resultado === true) {
+
+        $_SESSION['alert'] = [
+
+            'icon' => 'success',
+
+            'title' => 'Usuario eliminado',
+
+            'text' => 'El usuario fue eliminado correctamente.'
+        ];
+
+    } else {
+
+        $_SESSION['alert'] = [
+
+            'icon' => 'error',
+
+            'title' => 'No se puede eliminar',
+
+            'text' => is_string($resultado)
+                ? $resultado
+                : 'No se pudo eliminar el usuario.'
+        ];
+    }
+
+
+    header("Location: $rutaAdmin");
+    exit;
+}
+
+
+// ============================================================
+// EDITAR
+// ============================================================
+
+if ($accion === 'editar') {
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+
+        $_SESSION['alert'] = [
+            'icon' => 'warning',
+            'title' => 'Solicitud no válida',
+            'text' => 'La edición debe realizarse mediante POST.'
+        ];
+
+        header("Location: $rutaAdmin");
+        exit;
+    }
+
+
+    // --------------------------------------------------------
+    // DATOS
+    // --------------------------------------------------------
+
+    $id = (int) (
+        $_POST['id_usuario']
+        ?? 0
+    );
+
+
+    $nombre = trim(
+        $_POST['nombre']
+        ?? ''
+    );
+
+
+    $telefono = trim(
+        $_POST['telefono']
+        ?? ''
+    );
+
+
+    $rol = (int) (
+        $_POST['rol']
+        ?? 0
+    );
+
+
+    $password =
+        $_POST['password']
+        ?? '';
+
+
+    // --------------------------------------------------------
+    // VALIDAR ID
+    // --------------------------------------------------------
+
+    if ($id <= 0) {
+
+        $_SESSION['alert'] = [
+            'icon' => 'error',
+            'title' => 'Error',
+            'text' => 'El usuario no es válido.'
+        ];
+
+        header("Location: $rutaAdmin");
+        exit;
+    }
+
+
+    // --------------------------------------------------------
+    // VALIDAR NOMBRE
+    // --------------------------------------------------------
+
+    if ($nombre === '') {
+
+        $_SESSION['alert'] = [
+            'icon' => 'error',
+            'title' => 'Error',
+            'text' => 'El nombre es obligatorio.'
+        ];
+
+        header("Location: $rutaAdmin");
+        exit;
+    }
+
+
+    // --------------------------------------------------------
+    // VALIDAR ROL
+    // --------------------------------------------------------
+
+    if ($rol <= 0) {
+
+        $_SESSION['alert'] = [
+            'icon' => 'error',
+            'title' => 'Error',
+            'text' => 'Debes seleccionar un rol.'
+        ];
+
+        header("Location: $rutaAdmin");
+        exit;
+    }
+
+
+    // --------------------------------------------------------
+    // EDITAR DATOS
+    // --------------------------------------------------------
+
+    $resultado = $usuarioModel->editarCompleto(
+        $id,
+        $nombre,
+        $telefono,
+        $rol
+    );
+
+
+    if ($resultado !== true) {
+
+        $_SESSION['alert'] = [
+
+            'icon' => 'error',
+
+            'title' => 'Error al editar',
+
+            'text' => is_string($resultado)
+                ? $resultado
+                : 'No se pudieron actualizar los datos.'
+        ];
+
+        header("Location: $rutaAdmin");
+        exit;
+    }
+
+
+    // --------------------------------------------------------
+    // CAMBIAR CONTRASEÑA
+    // --------------------------------------------------------
+
+    if ($password !== '') {
+
+        $resultadoPassword =
+            $usuarioModel->cambiarPassword(
+                $id,
+                $password
+            );
+
+
+        if ($resultadoPassword !== true) {
+
+            $_SESSION['alert'] = [
+
+                'icon' => 'error',
+
+                'title' => 'Error',
+
+                'text' => is_string($resultadoPassword)
+                    ? $resultadoPassword
+                    : 'No se pudo cambiar la contraseña.'
+            ];
+
+            header("Location: $rutaAdmin");
+            exit;
+        }
+    }
+
+
+    // --------------------------------------------------------
+    // ÉXITO
+    // --------------------------------------------------------
+
+    $_SESSION['alert'] = [
+
+        'icon' => 'success',
+
+        'title' => 'Usuario actualizado',
+
+        'text' =>
+            'Los datos del usuario fueron actualizados correctamente.'
+    ];
+
+
+    header("Location: $rutaAdmin");
+    exit;
+}
+
+
+// ============================================================
+// ACCIÓN NO VÁLIDA
+// ============================================================
+
+$_SESSION['alert'] = [
+
+    'icon' => 'warning',
+
+    'title' => 'Acción no válida',
+
+    'text' => 'La acción solicitada no existe.'
+];
+
+
+header("Location: $rutaAdmin");
+exit;
 
 ?>

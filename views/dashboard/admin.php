@@ -4,7 +4,7 @@ session_start();
 
 if (
     !isset($_SESSION['usuario']) ||
-    strtolower(trim($_SESSION['usuario']['rol'] ?? '')) !== 'administrador'
+    ($_SESSION['usuario']['rol'] ?? '') !== 'Administrador'
 ) {
     header("Location: ../usuarios/login.php");
     exit;
@@ -13,41 +13,50 @@ if (
 require_once __DIR__ . '/../../config/databse.php';
 require_once __DIR__ . '/../../models/usuario.php';
 
-$database = new Database();
-$db = $database->conectar();
-$usuarioModel = new Usuario($db);
+try {
+    $database = new Database();
+    $db = $database->conectar();
+    $usuarioModel = new Usuario($db);
+} catch (Exception $e) {
+    $_SESSION['alert'] = [
+        'icon' => 'error',
+        'title' => 'Error',
+        'text' => 'No se pudo conectar con la base de datos.'
+    ];
+
+    header("Location: admin.php");
+    exit;
+}
 
 $todosUsuarios = $usuarioModel->obtenerTodos();
 $roles = $usuarioModel->obtenerRoles();
 
+$todosUsuarios = is_array($todosUsuarios) ? $todosUsuarios : [];
+$roles = is_array($roles) ? $roles : [];
+
 $porPagina = 5;
-$totalUsuarios = is_array($todosUsuarios) ? count($todosUsuarios) : 0;
-$totalPaginas = max(1, ceil($totalUsuarios / $porPagina));
+$totalUsuarios = count($todosUsuarios);
+$totalPaginas = max(1, (int)ceil($totalUsuarios / $porPagina));
 
-$pagina = max(1, intval($_GET['pagina'] ?? 1));
+$paginaActual = isset($_GET['pagina']) ? (int)$_GET['pagina'] : 1;
+$paginaActual = max(1, min($paginaActual, $totalPaginas));
 
-if ($pagina > $totalPaginas) {
-    $pagina = $totalPaginas;
-}
-
-$inicio = ($pagina - 1) * $porPagina;
+$inicio = ($paginaActual - 1) * $porPagina;
 $usuarios = array_slice($todosUsuarios, $inicio, $porPagina);
 
-$titulo = "Panel de usuarios - Administrador";
+$titulo = "Gestionar Usuarios";
 
 require_once __DIR__ . '/../layouts/header.php';
 require_once __DIR__ . '/../layouts/sidebar.php';
-
 ?>
 
 <style>
-
 .btn-primario {
     background:#00875F;
     color:white;
-    border:0;
+    border:none;
     border-radius:10px;
-    padding:10px 18px;
+    padding:10px 20px;
     font-weight:600;
     cursor:pointer;
 }
@@ -56,81 +65,136 @@ require_once __DIR__ . '/../layouts/sidebar.php';
     background:#01614B;
 }
 
-.btn-accion {
-    width:34px;
-    height:34px;
-    padding:0;
-    border-radius:8px;
-    background:white;
-    border:1px solid;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    cursor:pointer;
-}
-
 .campo-input {
     width:100%;
     padding:10px 14px;
-    border:1px solid #E5E7EB;
-    border-radius:10px;
-    outline:none;
     background:white;
+    border:1.5px solid #E5E7EB;
+    border-radius:10px;
+    font-size:.95rem;
+    outline:none;
+    box-sizing:border-box;
+}
+
+.campo-input:focus {
+    border-color:#61D0A7;
+}
+
+@keyframes modalRise {
+    from {
+        opacity:0;
+        transform:translateY(15px) scale(.98);
+    }
+    to {
+        opacity:1;
+        transform:translateY(0) scale(1);
+    }
+}
+
+.btn-accion {
+    width:34px !important;
+    height:34px !important;
+    padding:0 !important;
+    border-radius:8px !important;
+    border:1px solid !important;
+    background:white !important;
+    display:inline-flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    cursor:pointer;
 }
 
 .paginacion {
-    padding:14px;
+    padding:14px 20px;
     border-top:1px solid #E5E7EB;
     display:flex;
     justify-content:center;
+    align-items:center;
     gap:6px;
 }
 
 .pag {
     width:36px;
     height:36px;
+    border:1px solid #E5E7EB;
+    border-radius:9px;
+    background:white;
+    color:#5F6673;
     display:flex;
     align-items:center;
     justify-content:center;
-    border:1px solid #E5E7EB;
-    border-radius:9px;
     text-decoration:none;
-    color:#5F6673;
     font-weight:600;
+}
+
+.pag:hover {
+    background:#DDF5EC;
+    border-color:#61D0A7;
+    color:#01614B;
 }
 
 .pag.activa {
     background:#00875F;
-    color:white;
     border-color:#00875F;
+    color:white;
 }
 
-.modal {
+.pag.deshabilitado {
+    opacity:.4;
+    pointer-events:none;
+}
+
+.modal-fondo {
     position:fixed;
     inset:0;
     background:rgba(0,0,0,.45);
     backdrop-filter:blur(4px);
-    z-index:50;
     display:flex;
     align-items:center;
     justify-content:center;
     padding:20px;
+    z-index:9999;
 }
 
-.modal-box {
+.modal-fondo.oculto {
+    display:none;
+}
+
+.modal-caja {
     background:white;
     width:100%;
-    max-width:680px;
+    max-width:650px;
     border-radius:18px;
+    box-shadow:0 20px 60px rgba(0,0,0,.20);
     overflow:hidden;
+    animation:modalRise .25s ease;
 }
 
-.modal-head {
+.modal-caja.pequeno {
+    max-width:430px;
+}
+
+.modal-header {
     padding:18px 24px;
     border-bottom:1px solid #E5E7EB;
     display:flex;
-    justify-content:space-between;
     align-items:center;
+    justify-content:space-between;
+}
+
+.modal-header h3 {
+    margin:0;
+    color:#01614B;
+    font-size:20px;
+    font-weight:700;
+}
+
+.btn-cerrar {
+    background:none;
+    border:none;
+    cursor:pointer;
+    font-size:20px;
+    color:#5F6673;
 }
 
 .modal-body {
@@ -145,15 +209,29 @@ require_once __DIR__ . '/../layouts/sidebar.php';
     gap:10px;
 }
 
-</style>
+.btn-cancelar {
+    background:white;
+    border:1px solid #D1D5DB;
+    border-radius:10px;
+    padding:10px 20px;
+    cursor:pointer;
+    font-weight:600;
+}
 
+.btn-eliminar {
+    background:#E53935;
+    color:white;
+    border:none;
+    border-radius:10px;
+    padding:10px 20px;
+    cursor:pointer;
+    font-weight:600;
+}
+</style>
 
 <div class="max-w-7xl mx-auto">
 
-    <!-- ENCABEZADO -->
-
-    <div class="flex justify-between items-center mb-6">
-
+    <div class="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
         <div>
             <h2
                 class="text-3xl font-bold font-serif-ventanet"
@@ -162,36 +240,31 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                 Gestionar Usuarios
             </h2>
 
-            <p
-                class="text-sm mt-1"
-                style="color:#5F6673;"
-            >
+            <p class="text-sm mt-1" style="color:#5F6673;">
                 Gestiona los accesos y permisos de forma centralizada
             </p>
         </div>
 
         <button
-            class="btn-primario"
+            type="button"
             onclick="abrirModal('modalCrear')"
+            class="btn-primario"
         >
             <i class="fas fa-user-plus"></i>
             Nuevo Usuario
         </button>
-
     </div>
-
-
-    <!-- ALERTAS -->
 
     <?php if (isset($_SESSION['alert'])): ?>
 
         <script>
         document.addEventListener('DOMContentLoaded', function() {
             Swal.fire({
-                icon: <?= json_encode($_SESSION['alert']['icon']) ?>,
-                title: <?= json_encode($_SESSION['alert']['title']) ?>,
-                text: <?= json_encode($_SESSION['alert']['text']) ?>,
-                confirmButtonColor:'#00875F'
+                icon: <?= json_encode($_SESSION['alert']['icon'] ?? 'info') ?>,
+                title: <?= json_encode($_SESSION['alert']['title'] ?? 'Aviso') ?>,
+                text: <?= json_encode($_SESSION['alert']['text'] ?? '') ?>,
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: '#00875F'
             });
         });
         </script>
@@ -200,31 +273,41 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 
     <?php endif; ?>
 
-
-    <!-- TABLA -->
-
     <div
         class="bg-white rounded-2xl border overflow-hidden"
-        style="border-color:#E5E7EB"
+        style="border-color:#E5E7EB;"
     >
 
         <div class="overflow-x-auto">
 
-            <table class="w-full text-left">
+            <table class="w-full text-left border-collapse">
 
                 <thead>
+                    <tr style="background:#01614B;">
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white">
+                            Nombre
+                        </th>
 
-                    <tr style="background:#01614B;color:white">
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white">
+                            Correo
+                        </th>
 
-                        <th class="px-5 py-3 text-xs uppercase">Nombre</th>
-                        <th class="px-5 py-3 text-xs uppercase">Correo</th>
-                        <th class="px-5 py-3 text-xs uppercase">Teléfono</th>
-                        <th class="px-5 py-3 text-xs uppercase text-center">Rol</th>
-                        <th class="px-5 py-3 text-xs uppercase text-center">Estado</th>
-                        <th class="px-5 py-3 text-xs uppercase text-center">Acciones</th>
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white">
+                            Teléfono
+                        </th>
 
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white text-center">
+                            Rol
+                        </th>
+
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white text-center">
+                            Estado
+                        </th>
+
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white text-center">
+                            Acciones
+                        </th>
                     </tr>
-
                 </thead>
 
                 <tbody>
@@ -232,49 +315,87 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                 <?php foreach ($usuarios as $u): ?>
 
                     <?php
-                    $activo = strtolower(trim($u['estado'] ?? 'activo')) === 'activo';
-                    $nombre = htmlspecialchars($u['nombre'] ?? '');
+                    $estadoUsuario = $u['estado_usuario'] ?? ($u['estado'] ?? 1);
+
+                    $activo =
+                        $estadoUsuario === 1 ||
+                        $estadoUsuario === '1' ||
+                        strtolower((string)$estadoUsuario) === 'activo';
+
+                    $fila = $activo ? '#FFFFFF' : '#FDECEC';
+                    $hover = $activo ? '#F8F8F8' : '#FDE0E0';
+                    $idUsuario = (int)($u['id_usuario'] ?? 0);
+
+                    $admin =
+                        strtolower($u['nombre_rol'] ?? '') === 'administrador';
                     ?>
 
-                    <tr style="border-bottom:1px solid #E5E7EB">
+                    <tr
+                        style="
+                            border-bottom:1px solid #E5E7EB;
+                            background:<?= $fila ?>;
+                        "
+                        onmouseover="this.style.background='<?= $hover ?>'"
+                        onmouseout="this.style.background='<?= $fila ?>'"
+                    >
 
-                        <td class="px-5 py-4 font-bold">
-                            <?= $nombre ?>
+                        <td class="px-5 py-3.5 font-bold text-sm">
+                            <?= htmlspecialchars(
+                                $u['nombre'] ?? '',
+                                ENT_QUOTES,
+                                'UTF-8'
+                            ) ?>
                         </td>
 
                         <td
-                            class="px-5 py-4"
-                            style="color:#5F6673"
+                            class="px-5 py-3.5 text-sm"
+                            style="color:#5F6673;"
                         >
-                            <?= htmlspecialchars($u['correo'] ?? '') ?>
+                            <?= htmlspecialchars(
+                                $u['correo'] ?? '',
+                                ENT_QUOTES,
+                                'UTF-8'
+                            ) ?>
                         </td>
 
                         <td
-                            class="px-5 py-4"
-                            style="color:#5F6673"
+                            class="px-5 py-3.5 text-sm"
+                            style="color:#5F6673;"
                         >
-                            <?= htmlspecialchars($u['telefono'] ?? 'No registrado') ?>
+                            <?= htmlspecialchars(
+                                !empty($u['telefono'])
+                                    ? $u['telefono']
+                                    : 'No registrado',
+                                ENT_QUOTES,
+                                'UTF-8'
+                            ) ?>
                         </td>
 
-                        <td class="px-5 py-4 text-center">
+                        <td class="px-5 py-3.5 text-center">
 
                             <span
                                 style="
-                                    background:#EBF5FF;
-                                    color:#1F3552;
-                                    border:1px solid #BFDBFE;
-                                    padding:4px 12px;
+                                    <?= $admin
+                                        ? 'background:#EBF5FF;color:#1F3552;border:1px solid #BFDBFE;'
+                                        : 'background:#FFFBEB;color:#92400E;border:1px solid #FFB51B;'
+                                    ?>
+
+                                    padding:3px 12px;
                                     border-radius:999px;
                                     font-size:.75rem;
                                     font-weight:700;
                                 "
                             >
-                                <?= htmlspecialchars($u['nombre_rol'] ?? '—') ?>
+                                <?= htmlspecialchars(
+                                    $u['nombre_rol'] ?? '—',
+                                    ENT_QUOTES,
+                                    'UTF-8'
+                                ) ?>
                             </span>
 
                         </td>
 
-                        <td class="px-5 py-4 text-center">
+                        <td class="px-5 py-3.5 text-center">
 
                             <?php if ($activo): ?>
 
@@ -283,7 +404,7 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                                         background:#DDF5EC;
                                         color:#00875F;
                                         border:1px solid #61D0A7;
-                                        padding:4px 12px;
+                                        padding:3px 12px;
                                         border-radius:999px;
                                         font-size:.75rem;
                                         font-weight:700;
@@ -299,7 +420,7 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                                         background:#FDE8E8;
                                         color:#E53935;
                                         border:1px solid #E53935;
-                                        padding:4px 12px;
+                                        padding:3px 12px;
                                         border-radius:999px;
                                         font-size:.75rem;
                                         font-weight:700;
@@ -312,65 +433,72 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 
                         </td>
 
-
-                        <!-- ACCIONES -->
-
-                        <td class="px-5 py-4">
+                        <td class="px-5 py-3.5">
 
                             <div
                                 style="
                                     display:flex;
                                     justify-content:center;
+                                    align-items:center;
                                     gap:8px;
                                 "
                             >
 
-                                <!-- EDITAR -->
-
                                 <button
+                                    type="button"
                                     class="btn-accion"
                                     title="Editar"
+                                    onclick='abrirModalEditar(
+                                        <?= json_encode(
+                                            $u,
+                                            JSON_HEX_TAG |
+                                            JSON_HEX_APOS |
+                                            JSON_HEX_QUOT |
+                                            JSON_HEX_AMP
+                                        ) ?>
+                                    )'
                                     style="
                                         color:#00875F;
-                                        border-color:#61D0A7;
+                                        border-color:#61D0A7 !important;
                                     "
-                                    onclick='abrirEditar(<?= json_encode($u) ?>)'
                                 >
                                     <i class="fas fa-pen"></i>
                                 </button>
 
-
-                                <!-- ACTIVAR / DESACTIVAR -->
-
                                 <button
+                                    type="button"
                                     class="btn-accion"
-                                    title="<?= $activo ? 'Desactivar' : 'Activar' ?>"
+                                    title="<?= $activo ? 'Desactivar usuario' : 'Activar usuario' ?>"
+                                    onclick="cambiarEstadoUsuario(
+                                        <?= $idUsuario ?>,
+                                        <?= $activo ? 1 : 0 ?>
+                                    )"
                                     style="
                                         color:<?= $activo ? '#FFB51B' : '#00875F' ?>;
-                                        border-color:<?= $activo ? '#FFB51B' : '#61D0A7' ?>;
+                                        border-color:<?= $activo ? '#FFB51B' : '#61D0A7' ?> !important;
                                     "
-                                    onclick="cambiarEstado(
-                                        <?= intval($u['id_usuario']) ?>,
-                                        '<?= $activo ? 'activo' : 'inactivo' ?>'
-                                    )"
                                 >
                                     <i class="fas <?= $activo ? 'fa-ban' : 'fa-check' ?>"></i>
                                 </button>
 
-
-                                <!-- ELIMINAR -->
-
                                 <button
+                                    type="button"
                                     class="btn-accion"
                                     title="Eliminar"
+                                    onclick='abrirModalEliminar(
+                                        <?= $idUsuario ?>,
+                                        <?= json_encode(
+                                            $u['nombre'] ?? '',
+                                            JSON_HEX_TAG |
+                                            JSON_HEX_APOS |
+                                            JSON_HEX_QUOT |
+                                            JSON_HEX_AMP
+                                        ) ?>
+                                    )'
                                     style="
                                         color:#E53935;
-                                        border-color:#E53935;
+                                        border-color:#E53935 !important;
                                     "
-                                    onclick='abrirEliminar(
-                                        <?= intval($u['id_usuario']) ?>,
-                                        <?= json_encode($u['nombre'] ?? '') ?>
-                                    )'
                                 >
                                     <i class="fas fa-trash"></i>
                                 </button>
@@ -383,14 +511,17 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 
                 <?php endforeach; ?>
 
-
                 <?php if (empty($usuarios)): ?>
 
                     <tr>
                         <td
                             colspan="6"
-                            class="text-center"
-                            style="padding:40px;color:#5F6673"
+                            style="
+                                padding:48px;
+                                text-align:center;
+                                color:#5F6673;
+                                font-weight:600;
+                            "
                         >
                             No hay usuarios registrados.
                         </td>
@@ -404,29 +535,21 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 
         </div>
 
+        <?php if ($totalUsuarios > $porPagina): ?>
 
-        <!-- PAGINACIÓN -->
+            <nav class="paginacion">
 
-        <?php if ($totalPaginas > 1): ?>
-
-            <div class="paginacion">
-
-                <?php if ($pagina > 1): ?>
-
-                    <a
-                        class="pag"
-                        href="?pagina=<?= $pagina - 1 ?>"
-                    >
-                        ‹
-                    </a>
-
-                <?php endif; ?>
-
+                <a
+                    class="pag <?= $paginaActual <= 1 ? 'deshabilitado' : '' ?>"
+                    href="?pagina=<?= max(1, $paginaActual - 1) ?>"
+                >
+                    «
+                </a>
 
                 <?php for ($i = 1; $i <= $totalPaginas; $i++): ?>
 
                     <a
-                        class="pag <?= $i == $pagina ? 'activa' : '' ?>"
+                        class="pag <?= $i === $paginaActual ? 'activa' : '' ?>"
                         href="?pagina=<?= $i ?>"
                     >
                         <?= $i ?>
@@ -434,19 +557,14 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 
                 <?php endfor; ?>
 
+                <a
+                    class="pag <?= $paginaActual >= $totalPaginas ? 'deshabilitado' : '' ?>"
+                    href="?pagina=<?= min($totalPaginas, $paginaActual + 1) ?>"
+                >
+                    »
+                </a>
 
-                <?php if ($pagina < $totalPaginas): ?>
-
-                    <a
-                        class="pag"
-                        href="?pagina=<?= $pagina + 1 ?>"
-                    >
-                        ›
-                    </a>
-
-                <?php endif; ?>
-
-            </div>
+            </nav>
 
         <?php endif; ?>
 
@@ -455,45 +573,34 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 </div>
 
 
-
-<!-- ========================================================= -->
 <!-- MODAL CREAR -->
-<!-- ========================================================= -->
 
-<div
-    id="modalCrear"
-    class="modal"
-    style="display:none"
->
+<div id="modalCrear" class="modal-fondo oculto">
 
-    <div class="modal-box">
+    <div class="modal-caja">
 
-        <div class="modal-head">
+        <div class="modal-header">
+            <h3>Agregar Usuario</h3>
 
-            <h3 class="font-bold text-lg">
-                Agregar Usuario
-            </h3>
-
-            <button onclick="cerrarModal('modalCrear')">
+            <button
+                type="button"
+                class="btn-cerrar"
+                onclick="cerrarModal('modalCrear')"
+            >
                 <i class="fas fa-times"></i>
             </button>
-
         </div>
-
 
         <form
             action="../../controllers/UsuarioController.php"
             method="POST"
         >
 
-            <!-- IMPORTANTE -->
-
             <input
                 type="hidden"
                 name="desde_admin"
                 value="1"
             >
-
 
             <div class="modal-body">
 
@@ -504,8 +611,8 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                         <input
                             type="text"
                             name="nombre"
-                            class="campo-input"
                             required
+                            class="campo-input"
                         >
                     </div>
 
@@ -523,16 +630,7 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                         <input
                             type="email"
                             name="correo"
-                            class="campo-input"
                             required
-                        >
-                    </div>
-
-                    <div>
-                        <label>Usuario</label>
-                        <input
-                            type="text"
-                            name="usuario"
                             class="campo-input"
                         >
                     </div>
@@ -542,8 +640,8 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                         <input
                             type="password"
                             name="password"
-                            class="campo-input"
                             required
+                            class="campo-input"
                         >
                     </div>
 
@@ -552,42 +650,41 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                         <input
                             type="password"
                             name="confirmar_password"
-                            class="campo-input"
                             required
+                            class="campo-input"
                         >
                     </div>
 
-                </div>
+                    <div>
+                        <label>Rol *</label>
 
-                <div class="mt-4">
+                        <select
+                            name="rol"
+                            required
+                            class="campo-input"
+                        >
+                            <?php foreach ($roles as $r): ?>
+                                <option value="<?= (int)$r['id_rol'] ?>">
+                                    <?= htmlspecialchars(
+                                        $r['nombre'],
+                                        ENT_QUOTES,
+                                        'UTF-8'
+                                    ) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
 
-                    <label>Rol *</label>
-
-                    <select
-                        name="rol"
-                        class="campo-input"
-                        required
-                    >
-
-                        <?php foreach ($roles as $r): ?>
-
-                            <option value="<?= $r['id_rol'] ?>">
-                                <?= htmlspecialchars($r['nombre']) ?>
-                            </option>
-
-                        <?php endforeach; ?>
-
-                    </select>
+                    </div>
 
                 </div>
 
             </div>
 
-
             <div class="modal-footer">
 
                 <button
                     type="button"
+                    class="btn-cancelar"
                     onclick="cerrarModal('modalCrear')"
                 >
                     Cancelar
@@ -609,60 +706,56 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 </div>
 
 
-
-<!-- ========================================================= -->
 <!-- MODAL EDITAR -->
-<!-- ========================================================= -->
 
-<div
-    id="modalEditar"
-    class="modal"
-    style="display:none"
->
+<div id="modalEditar" class="modal-fondo oculto">
 
-    <div class="modal-box">
+    <div class="modal-caja">
 
-        <div class="modal-head">
+        <div class="modal-header">
 
-            <h3 class="font-bold text-lg">
-                Editar Usuario
-            </h3>
+            <h3>Editar Usuario</h3>
 
-            <button onclick="cerrarModal('modalEditar')">
+            <button
+                type="button"
+                class="btn-cerrar"
+                onclick="cerrarModal('modalEditar')"
+            >
                 <i class="fas fa-times"></i>
             </button>
 
         </div>
-
 
         <form
             action="../../controllers/AdminUsuarioController.php?accion=editar"
             method="POST"
         >
 
-            <div class="modal-body">
+            <input
+                type="hidden"
+                name="id_usuario"
+                id="editId"
+            >
 
-                <input
-                    type="hidden"
-                    name="id_usuario"
-                    id="editId"
-                >
+            <div class="modal-body">
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 
                     <div>
                         <label>Nombre completo *</label>
+
                         <input
                             type="text"
                             name="nombre"
                             id="editNombre"
-                            class="campo-input"
                             required
+                            class="campo-input"
                         >
                     </div>
 
                     <div>
                         <label>Teléfono</label>
+
                         <input
                             type="text"
                             name="telefono"
@@ -673,11 +766,23 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 
                     <div>
                         <label>Correo</label>
+
                         <input
                             type="email"
                             id="editCorreo"
-                            class="campo-input"
                             readonly
+                            class="campo-input"
+                        >
+                    </div>
+
+                    <div>
+                        <label>Nueva contraseña</label>
+
+                        <input
+                            type="password"
+                            name="password"
+                            id="editPassword"
+                            class="campo-input"
                         >
                     </div>
 
@@ -687,18 +792,20 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                         <select
                             name="rol"
                             id="editRol"
-                            class="campo-input"
                             required
+                            class="campo-input"
                         >
-
                             <?php foreach ($roles as $r): ?>
 
-                                <option value="<?= $r['id_rol'] ?>">
-                                    <?= htmlspecialchars($r['nombre']) ?>
+                                <option value="<?= (int)$r['id_rol'] ?>">
+                                    <?= htmlspecialchars(
+                                        $r['nombre'],
+                                        ENT_QUOTES,
+                                        'UTF-8'
+                                    ) ?>
                                 </option>
 
                             <?php endforeach; ?>
-
                         </select>
 
                     </div>
@@ -707,11 +814,11 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 
             </div>
 
-
             <div class="modal-footer">
 
                 <button
                     type="button"
+                    class="btn-cancelar"
                     onclick="cerrarModal('modalEditar')"
                 >
                     Cancelar
@@ -733,29 +840,19 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 </div>
 
 
-
-<!-- ========================================================= -->
 <!-- MODAL ELIMINAR -->
-<!-- ========================================================= -->
 
-<div
-    id="modalEliminar"
-    class="modal"
-    style="display:none"
->
+<div id="modalEliminar" class="modal-fondo oculto">
 
-    <div
-        class="modal-box"
-        style="max-width:420px"
-    >
+    <div class="modal-caja pequeno">
 
-        <div class="modal-body text-center">
+        <div style="padding:35px 30px 20px;text-align:center;">
 
             <div
                 style="
                     width:65px;
                     height:65px;
-                    margin:auto;
+                    margin:0 auto 18px;
                     border-radius:50%;
                     background:#FDE8E8;
                     display:flex;
@@ -764,50 +861,60 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                 "
             >
                 <i
-                    class="fas fa-trash"
-                    style="
-                        color:#E53935;
-                        font-size:24px;
-                    "
+                    class="fas fa-exclamation-triangle"
+                    style="color:#E53935;font-size:28px;"
                 ></i>
             </div>
 
-            <h3 class="font-bold text-xl mt-4">
+            <h3
+                style="
+                    margin:0 0 10px;
+                    font-size:21px;
+                    font-weight:700;
+                    color:#171717;
+                "
+            >
                 Eliminar Usuario
             </h3>
 
-            <p class="mt-2" style="color:#5F6673">
-                ¿Seguro que deseas eliminar a:
+            <p
+                style="
+                    margin:0;
+                    color:#5F6673;
+                    line-height:1.5;
+                "
+            >
+                ¿Estás seguro de que deseas eliminar a:
             </p>
 
-            <strong id="elimNombre"></strong>
+            <p
+                id="elimNombre"
+                style="
+                    margin:8px 0 0;
+                    font-weight:700;
+                    color:#171717;
+                "
+            ></p>
 
         </div>
-
 
         <div class="modal-footer">
 
             <button
                 type="button"
+                class="btn-cancelar"
                 onclick="cerrarModal('modalEliminar')"
             >
                 Cancelar
             </button>
 
-            <a
-                id="elimLink"
-                href="#"
-                style="
-                    background:#E53935;
-                    color:white;
-                    padding:9px 18px;
-                    border-radius:10px;
-                    text-decoration:none;
-                    font-weight:600;
-                "
+            <button
+                type="button"
+                class="btn-eliminar"
+                onclick="confirmarEliminar()"
             >
                 Sí, eliminar
-            </a>
+            </button>
 
         </div>
 
@@ -816,82 +923,102 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 </div>
 
 
-
 <script>
 
 function abrirModal(id) {
-    document.getElementById(id).style.display = 'flex';
+    const modal = document.getElementById(id);
+
+    if (modal) {
+        modal.classList.remove('oculto');
+    }
 }
 
 function cerrarModal(id) {
-    document.getElementById(id).style.display = 'none';
+    const modal = document.getElementById(id);
+
+    if (modal) {
+        modal.classList.add('oculto');
+    }
 }
 
-
-/* EDITAR */
-
-function abrirEditar(u) {
+function abrirModalEditar(usuario) {
 
     document.getElementById('editId').value =
-        u.id_usuario || '';
+        usuario.id_usuario || '';
 
     document.getElementById('editNombre').value =
-        u.nombre || '';
+        usuario.nombre || '';
 
     document.getElementById('editTelefono').value =
-        u.telefono || '';
+        usuario.telefono || '';
 
     document.getElementById('editCorreo').value =
-        u.correo || '';
+        usuario.correo || '';
 
     document.getElementById('editRol').value =
-        u.id_rol || '';
+        usuario.id_rol || '';
+
+    document.getElementById('editPassword').value = '';
 
     abrirModal('modalEditar');
 }
 
+let usuarioEliminar = null;
 
-/* ELIMINAR */
+function abrirModalEliminar(id, nombre) {
 
-function abrirEliminar(id, nombre) {
+    usuarioEliminar = id;
 
     document.getElementById('elimNombre').textContent =
         nombre;
 
-    document.getElementById('elimLink').href =
-        '../../controllers/AdminUsuarioController.php?accion=eliminar&id=' + id;
-
     abrirModal('modalEliminar');
 }
 
+function confirmarEliminar() {
 
-/* ACTIVAR / DESACTIVAR */
-
-function cambiarEstado(id, estado) {
+    if (!usuarioEliminar) return;
 
     window.location.href =
         '../../controllers/AdminUsuarioController.php' +
-        '?accion=toggleEstado' +
-        '&id=' + id +
-        '&estado=' + encodeURIComponent(estado);
+        '?accion=eliminar&id=' +
+        encodeURIComponent(usuarioEliminar);
 }
 
+function cambiarEstadoUsuario(id) {
 
-/* CERRAR MODAL HACIENDO CLICK AFUERA */
+    if (!id || id <= 0) return;
 
-document.querySelectorAll('.modal').forEach(function(modal) {
+    window.location.href =
+        '../../controllers/AdminUsuarioController.php' +
+        '?accion=toggleEstado&id=' +
+        encodeURIComponent(id);
+}
+
+document.querySelectorAll('.modal-fondo').forEach(function(modal) {
 
     modal.addEventListener('click', function(e) {
 
         if (e.target === modal) {
-            modal.style.display = 'none';
+            modal.classList.add('oculto');
         }
 
     });
 
 });
 
-</script>
+document.addEventListener('keydown', function(e) {
 
+    if (e.key === 'Escape') {
+
+        document.querySelectorAll('.modal-fondo').forEach(function(modal) {
+            modal.classList.add('oculto');
+        });
+
+    }
+
+});
+
+</script>
 
 <?php require_once __DIR__ . '/../layouts/footer.php'; ?>

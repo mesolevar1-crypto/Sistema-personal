@@ -1,10 +1,61 @@
 <?php
 session_start();
 
-$alert = $_SESSION['alert'] ?? null;
+/* =====================================================
+   CONTROLAR BLOQUEO DEL LOGIN
+===================================================== */
+
 $bloqueado = $_SESSION['login_bloqueado'] ?? false;
+$tiempoBloqueo = $_SESSION['login_tiempo'] ?? 0;
+
+/* Si está bloqueado, comprobar si ya pasaron 2 minutos */
+
+if ($bloqueado && $tiempoBloqueo > 0) {
+
+    $tiempoPasado = time() - $tiempoBloqueo;
+
+    if ($tiempoPasado >= 120) {
+
+        /* DESBLOQUEAR */
+
+        $_SESSION['login_intentos'] = 0;
+        $_SESSION['login_bloqueado'] = false;
+        $_SESSION['login_tiempo'] = 0;
+
+        /* ELIMINAR CUALQUIER ALERTA ANTERIOR */
+
+        unset($_SESSION['alert']);
+
+        $bloqueado = false;
+    }
+}
+
+
+/* =====================================================
+   ALERTA
+===================================================== */
+
+$alert = $_SESSION['alert'] ?? null;
+
+
+/* Si ya no está bloqueado, eliminar alerta de bloqueo */
+
+if (!$bloqueado) {
+
+    if (
+        isset($alert['title']) &&
+        $alert['title'] === 'Acceso bloqueado'
+    ) {
+        $alert = null;
+        unset($_SESSION['alert']);
+    }
+}
+
+
+/* Evitar que la alerta quede guardada */
 
 unset($_SESSION['alert']);
+
 ?>
 
 <!DOCTYPE html>
