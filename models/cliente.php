@@ -1,167 +1,388 @@
 <?php
-/**
- * Modelo Cliente
- * BD real: cliente (id_cliente, id_persona, fecha_registro)
- *          persona (id_persona, nombre, telefono, correo, estado)
- * Estado en persona.estado ('activo' / 'inactivo')
- */
-class Cliente {
 
+class Cliente
+{
     private $conn;
 
-    public function __construct($db) {
+    public function __construct($db)
+    {
         $this->conn = $db;
     }
 
-    // ── Lista todos los clientes con datos de persona ───────
-    public function obtenerTodos() {
+    // ============================================================
+    // OBTENER TODOS LOS CLIENTES
+    // ============================================================
+
+    public function obtenerTodos()
+    {
         $sql = "SELECT
                     c.id_cliente,
+                    c.id_persona,
                     c.fecha_registro,
-                    p.id_persona,
+                    c.estado,
                     p.nombre,
                     p.telefono,
-                    p.correo,
-                    p.estado
+                    p.correo
                 FROM cliente c
-                INNER JOIN persona p ON c.id_persona = p.id_persona
-                ORDER BY p.nombre ASC";
+                INNER JOIN persona p
+                    ON c.id_persona = p.id_persona
+                ORDER BY c.fecha_registro DESC";
+
         $stmt = $this->conn->prepare($sql);
         $stmt->execute();
+
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // ── Verificar correo duplicado ──────────────────────────
-    public function existeCorreo($correo) {
-        $stmt = $this->conn->prepare(
-            "SELECT id_persona FROM persona WHERE correo = :correo LIMIT 1"
-        );
-        $stmt->bindParam(':correo', $correo);
-        $stmt->execute();
-        return $stmt->rowCount() > 0;
-    }
 
-    // ── Obtener cliente por ID ──────────────────────────────
-    public function obtenerPorId($id_cliente) {
-        $sql = "SELECT c.id_cliente, c.fecha_registro, p.*
+    // ============================================================
+    // OBTENER CLIENTE POR ID
+    // ============================================================
+
+    public function obtenerPorId($id_cliente)
+    {
+        $sql = "SELECT
+                    c.id_cliente,
+                    c.id_persona,
+                    c.fecha_registro,
+                    c.estado,
+                    p.nombre,
+                    p.telefono,
+                    p.correo
                 FROM cliente c
-                INNER JOIN persona p ON c.id_persona = p.id_persona
-                WHERE c.id_cliente = :id LIMIT 1";
+                INNER JOIN persona p
+                    ON c.id_persona = p.id_persona
+                WHERE c.id_cliente = :id
+                LIMIT 1";
+
         $stmt = $this->conn->prepare($sql);
-        $stmt->bindParam(':id', $id_cliente);
+        $stmt->bindValue(':id', $id_cliente, PDO::PARAM_INT);
         $stmt->execute();
+
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
-    // ── Registrar cliente (persona + cliente) ───────────────
-    public function registrar($datos) {
-        try {
-            $this->conn->beginTransaction();
 
-            // PASO 1: Insertar en persona
-            $stmt = $this->conn->prepare(
-                "INSERT INTO persona (nombre, telefono, correo, estado)
-                 VALUES (:nombre, :telefono, :correo, 'activo')"
-            );
-            $stmt->bindParam(':nombre',   $datos['nombre']);
-            $stmt->bindParam(':telefono', $datos['telefono']);
-            $stmt->bindParam(':correo',   $datos['correo']);
-            $stmt->execute();
-            $id_persona = $this->conn->lastInsertId();
+    // ============================================================
+    // VERIFICAR CORREO
+    // ============================================================
 
-            // PASO 2: Insertar en cliente
-            $stmt2 = $this->conn->prepare(
-                "INSERT INTO cliente (id_persona, fecha_registro)
-                 VALUES (:id_persona, CURDATE())"
-            );
-            $stmt2->bindParam(':id_persona', $id_persona);
-            $stmt2->execute();
-
-            $this->conn->commit();
-            return true;
-
-        } catch (Exception $e) {
-            if ($this->conn->inTransaction()) $this->conn->rollBack();
-            return "Error al registrar: " . $e->getMessage();
+    public function existeCorreo($correo)
+    {
+        if (empty($correo)) {
+            return false;
         }
-    }
 
-    // ── Editar cliente (actualiza en persona) ───────────────
-    public function editarCompleto($id_cliente, $nombre, $telefono, $correo) {
-        try {
-            $this->conn->beginTransaction();
+        $sql = "SELECT id_persona
+                FROM persona
+                WHERE correo = :correo
+                LIMIT 1";
 
-            $stmt = $this->conn->prepare("SELECT id_persona FROM cliente WHERE id_cliente = ?");
-            $stmt->execute([$id_cliente]);
-            $data = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$data) return "Cliente no encontrado";
-
-            $id_persona = $data['id_persona'];
-
-            $this->conn->prepare(
-                "UPDATE persona SET nombre = ?, telefono = ?, correo = ? WHERE id_persona = ?"
-            )->execute([$nombre, $telefono, $correo, $id_persona]);
-
-            $this->conn->commit();
-            return true;
-        } catch (Exception $e) {
-            $this->conn->rollBack();
-            return $e->getMessage();
-        }
-    }
-
-    // ── Cambiar estado en persona ───────────────────────────
-    public function cambiarEstado($id_cliente, $nuevoEstado) {
-        try {
-            $stmt = $this->conn->prepare("SELECT id_persona FROM cliente WHERE id_cliente = ?");
-            $stmt->execute([$id_cliente]);
-            $data = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$data) return "Cliente no encontrado";
-
-            $this->conn->prepare(
-                "UPDATE persona SET estado = ? WHERE id_persona = ?"
-            )->execute([$nuevoEstado, $data['id_persona']]);
-            return true;
-        } catch (Exception $e) {
-            return $e->getMessage();
-        }
-    }
-
-    // ── Verificar si el cliente tiene ventas ────────────────
-    public function tieneVentas($id_cliente) {
-        $stmt = $this->conn->prepare(
-            "SELECT COUNT(*) AS total FROM venta WHERE id_cliente = :id LIMIT 1"
-        );
-        $stmt->bindParam(':id', $id_cliente);
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bindValue(':correo', $correo);
         $stmt->execute();
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return intval($row['total']) > 0;
+
+        return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
     }
 
-    // ── Eliminar cliente (verifica ventas primero) ──────────
-    public function eliminar($id_cliente) {
+
+    // ============================================================
+    // REGISTRAR CLIENTE
+    // ============================================================
+
+    public function registrar($datos)
+    {
         try {
+
+            $this->conn->beginTransaction();
+
+
+            // ----------------------------------------------------
+            // 1. CREAR PERSONA
+            // ----------------------------------------------------
+
+            $sqlPersona = "INSERT INTO persona
+                            (nombre, telefono, correo)
+                           VALUES
+                            (:nombre, :telefono, :correo)";
+
+            $stmt = $this->conn->prepare($sqlPersona);
+
+            $stmt->bindValue(
+                ':nombre',
+                $datos['nombre']
+            );
+
+            $stmt->bindValue(
+                ':telefono',
+                $datos['telefono']
+            );
+
+            $stmt->bindValue(
+                ':correo',
+                $datos['correo']
+            );
+
+            $stmt->execute();
+
+
+            $idPersona = $this->conn->lastInsertId();
+
+
+            // ----------------------------------------------------
+            // 2. CREAR CLIENTE
+            // ----------------------------------------------------
+            // fecha_registro usa CURRENT_TIMESTAMP
+            // estado empieza en 1 = activo
+            // ----------------------------------------------------
+
+            $sqlCliente = "INSERT INTO cliente
+                            (id_persona, fecha_registro, estado)
+                           VALUES
+                            (:id_persona, CURRENT_TIMESTAMP, 1)";
+
+            $stmt = $this->conn->prepare($sqlCliente);
+
+            $stmt->bindValue(
+                ':id_persona',
+                $idPersona,
+                PDO::PARAM_INT
+            );
+
+            $stmt->execute();
+
+
+            $this->conn->commit();
+
+            return true;
+
+        } catch (Exception $e) {
+
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollBack();
+            }
+
+            return "Error al registrar el cliente: " . $e->getMessage();
+        }
+    }
+
+
+    // ============================================================
+    // EDITAR CLIENTE
+    // ============================================================
+
+    public function editarCompleto(
+        $id_cliente,
+        $nombre,
+        $telefono,
+        $correo
+    ) {
+        try {
+
+            $stmt = $this->conn->prepare(
+                "SELECT id_persona
+                 FROM cliente
+                 WHERE id_cliente = ?
+                 LIMIT 1"
+            );
+
+            $stmt->execute([$id_cliente]);
+
+            $cliente = $stmt->fetch(PDO::FETCH_ASSOC);
+
+
+            if (!$cliente) {
+                return "Cliente no encontrado.";
+            }
+
+
+            $idPersona = $cliente['id_persona'];
+
+
+            $stmt = $this->conn->prepare(
+                "UPDATE persona
+                 SET nombre = ?,
+                     telefono = ?,
+                     correo = ?
+                 WHERE id_persona = ?"
+            );
+
+            $stmt->execute([
+                $nombre,
+                $telefono,
+                $correo,
+                $idPersona
+            ]);
+
+
+            return true;
+
+        } catch (Exception $e) {
+
+            return "Error al actualizar: " . $e->getMessage();
+        }
+    }
+
+
+    // ============================================================
+    // CAMBIAR ESTADO
+    // ============================================================
+
+    public function cambiarEstado($id_cliente)
+    {
+        try {
+
+            $stmt = $this->conn->prepare(
+                "SELECT estado
+                 FROM cliente
+                 WHERE id_cliente = ?
+                 LIMIT 1"
+            );
+
+            $stmt->execute([$id_cliente]);
+
+            $cliente = $stmt->fetch(PDO::FETCH_ASSOC);
+
+
+            if (!$cliente) {
+                return "Cliente no encontrado.";
+            }
+
+
+            $estadoActual = (int)$cliente['estado'];
+
+            $nuevoEstado = $estadoActual === 1 ? 0 : 1;
+
+
+            $stmt = $this->conn->prepare(
+                "UPDATE cliente
+                 SET estado = ?
+                 WHERE id_cliente = ?"
+            );
+
+            $stmt->execute([
+                $nuevoEstado,
+                $id_cliente
+            ]);
+
+
+            return true;
+
+        } catch (Exception $e) {
+
+            return "Error al cambiar el estado: " . $e->getMessage();
+        }
+    }
+
+
+    // ============================================================
+    // VERIFICAR SI TIENE VENTAS
+    // ============================================================
+
+    public function tieneVentas($id_cliente)
+    {
+        try {
+
+            $stmt = $this->conn->prepare(
+                "SELECT COUNT(*) AS total
+                 FROM venta
+                 WHERE id_cliente = ?"
+            );
+
+            $stmt->execute([$id_cliente]);
+
+            $resultado = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            return (int)$resultado['total'] > 0;
+
+        } catch (Exception $e) {
+
+            return false;
+        }
+    }
+
+
+    // ============================================================
+    // ELIMINAR CLIENTE
+    // ============================================================
+
+    public function eliminar($id_cliente)
+    {
+        try {
+
+            // ----------------------------------------------------
+            // BUSCAR CLIENTE
+            // ----------------------------------------------------
+
+            $stmt = $this->conn->prepare(
+                "SELECT id_persona
+                 FROM cliente
+                 WHERE id_cliente = ?
+                 LIMIT 1"
+            );
+
+            $stmt->execute([$id_cliente]);
+
+            $cliente = $stmt->fetch(PDO::FETCH_ASSOC);
+
+
+            if (!$cliente) {
+                return "Cliente no encontrado.";
+            }
+
+
+            // ----------------------------------------------------
+            // SI TIENE VENTAS NO SE ELIMINA
+            // ----------------------------------------------------
+
             if ($this->tieneVentas($id_cliente)) {
+
                 return "No se puede eliminar este cliente porque tiene ventas registradas.";
             }
 
+
+            $idPersona = $cliente['id_persona'];
+
+
             $this->conn->beginTransaction();
 
-            $stmt = $this->conn->prepare("SELECT id_persona FROM cliente WHERE id_cliente = ?");
+
+            // ----------------------------------------------------
+            // ELIMINAR CLIENTE
+            // ----------------------------------------------------
+
+            $stmt = $this->conn->prepare(
+                "DELETE FROM cliente
+                 WHERE id_cliente = ?"
+            );
+
             $stmt->execute([$id_cliente]);
-            $data = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$data) return "Cliente no encontrado";
 
-            $id_persona = $data['id_persona'];
 
-            $this->conn->prepare("DELETE FROM cliente WHERE id_cliente = ?")->execute([$id_cliente]);
-            $this->conn->prepare("DELETE FROM persona WHERE id_persona = ?")->execute([$id_persona]);
+            // ----------------------------------------------------
+            // ELIMINAR PERSONA
+            // ----------------------------------------------------
+
+            $stmt = $this->conn->prepare(
+                "DELETE FROM persona
+                 WHERE id_persona = ?"
+            );
+
+            $stmt->execute([$idPersona]);
+
 
             $this->conn->commit();
+
+
             return true;
+
         } catch (Exception $e) {
-            $this->conn->rollBack();
-            return $e->getMessage();
+
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollBack();
+            }
+
+            return "Error al eliminar: " . $e->getMessage();
         }
     }
 }

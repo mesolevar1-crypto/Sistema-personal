@@ -1,355 +1,1535 @@
 <?php
-// ============================================================
-// Vista: Gestión de Clientes
-// ============================================================
+
 session_start();
 
+
+// ============================================================
+// VERIFICAR SESIÓN
+// ============================================================
+
 if (!isset($_SESSION['usuario'])) {
+
     header("Location: ../usuarios/login.php");
+
     exit;
 }
+
+
+// ============================================================
+// CONEXIÓN
+// ============================================================
+
 $titulo = "Panel de clientes - Administrador";
+
 require_once __DIR__ . '/../../config/databse.php';
 require_once __DIR__ . '/../../models/cliente.php';
 
-$database     = new Database();
-$db           = $database->conectar();
-$clienteModel = new Cliente($db);
-$todosClientes = $clienteModel->obtenerTodos();
 
-// Paginación
-$porPagina     = 10;
+try {
+
+    $database = new Database();
+
+    $db = $database->conectar();
+
+    $clienteModel = new Cliente($db);
+
+    $todosClientes = $clienteModel->obtenerTodos();
+
+} catch (Exception $e) {
+
+    $todosClientes = [];
+
+    $_SESSION['alert'] = [
+        'icon' => 'error',
+        'title' => 'Error',
+        'text' => 'No se pudieron cargar los clientes.'
+    ];
+}
+
+
+// ============================================================
+// PAGINACIÓN
+// ============================================================
+
+$porPagina = 5;
+
 $totalClientes = count($todosClientes);
-$totalPags     = (int) ceil($totalClientes / $porPagina);
-$pagActual     = max(1, min((int)($_GET['pagina'] ?? 1), max(1, $totalPags)));
-$offset        = ($pagActual - 1) * $porPagina;
-$clientes      = array_slice($todosClientes, $offset, $porPagina);
+
+$totalPaginas = max(
+    1,
+    (int)ceil($totalClientes / $porPagina)
+);
+
+
+$paginaActual = isset($_GET['pagina'])
+    ? (int)$_GET['pagina']
+    : 1;
+
+
+$paginaActual = max(
+    1,
+    min($paginaActual, $totalPaginas)
+);
+
+
+$inicio = ($paginaActual - 1) * $porPagina;
+
+
+$clientes = array_slice(
+    $todosClientes,
+    $inicio,
+    $porPagina
+);
+
 
 require_once __DIR__ . '/../layouts/header.php';
 require_once __DIR__ . '/../layouts/sidebar.php';
+
 ?>
 
+
 <style>
-    .btn-primario {
-        background:#00875F; color:#fff; border-radius:10px; border:none;
-        font-weight:600; font-family:'Outfit',sans-serif; cursor:pointer;
-        transition:background .18s,transform .15s,box-shadow .18s;
-        box-shadow:0 4px 12px rgba(0,135,95,.22);
-        display:inline-flex; align-items:center; gap:6px;
-    }
-    .btn-primario:hover { background:#01614B; transform:translateY(-2px); }
-    .btn-peligro {
-        background:#E53935; color:#fff; border-radius:10px; border:none;
-        font-weight:600; font-family:'Outfit',sans-serif; cursor:pointer;
-        transition:background .18s; display:inline-flex; align-items:center; gap:6px;
-        text-decoration:none;
-    }
-    .btn-peligro:hover { background:#c62828; }
-    .campo-input {
-        width:100%; background:#fff; border:1.5px solid #E5E7EB; border-radius:10px;
-        color:#171717; font-family:'Outfit',sans-serif; font-size:.95rem; outline:none;
-        transition:border-color .2s,box-shadow .2s; padding:10px 14px;
-    }
-    .campo-input:focus { border-color:#61D0A7; box-shadow:0 0 0 4px rgba(97,208,167,.15); }
-    .campo-input[readonly] { background:#F8F8F8; color:#5F6673; cursor:not-allowed; }
-    @keyframes modalRise {
-        from { opacity:0; transform:translateY(18px) scale(.98); }
-        to   { opacity:1; transform:translateY(0) scale(1); }
-    }
-    .modal-anim { animation:modalRise .28s cubic-bezier(.22,1,.36,1) forwards; }
-    .pag-btn {
-        padding:7px 13px; border-radius:8px; border:1px solid #E5E7EB;
-        background:#fff; color:#5F6673; font-size:.85rem; font-weight:600;
-        text-decoration:none; transition:background .15s,border-color .15s,color .15s;
-    }
-    .pag-btn:hover        { background:#DDF5EC; border-color:#61D0A7; color:#01614B; }
-    .pag-btn.activa       { background:#00875F; border-color:#00875F; color:#fff; }
-    .pag-btn.deshabilitado { opacity:.4; pointer-events:none; }
+
+.btn-primario {
+
+    background:#00875F;
+
+    color:white;
+
+    border:none;
+
+    border-radius:10px;
+
+    padding:10px 20px;
+
+    font-weight:600;
+
+    cursor:pointer;
+
+}
+
+
+.btn-primario:hover {
+
+    background:#01614B;
+
+}
+
+
+.campo-input {
+
+    width:100%;
+
+    padding:10px 14px;
+
+    background:white;
+
+    border:1.5px solid #E5E7EB;
+
+    border-radius:10px;
+
+    font-size:.95rem;
+
+    outline:none;
+
+    box-sizing:border-box;
+
+}
+
+
+.campo-input:focus {
+
+    border-color:#61D0A7;
+
+}
+
+
+.btn-accion {
+
+    width:34px;
+
+    height:34px;
+
+    padding:0;
+
+    border-radius:8px;
+
+    background:white;
+
+    display:inline-flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    cursor:pointer;
+
+}
+
+
+.paginacion {
+
+    padding:14px 20px;
+
+    border-top:1px solid #E5E7EB;
+
+    display:flex;
+
+    justify-content:center;
+
+    align-items:center;
+
+    gap:6px;
+
+}
+
+
+.pag {
+
+    width:36px;
+
+    height:36px;
+
+    border:1px solid #E5E7EB;
+
+    border-radius:9px;
+
+    background:white;
+
+    color:#5F6673;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    text-decoration:none;
+
+    font-weight:600;
+
+}
+
+
+.pag:hover {
+
+    background:#DDF5EC;
+
+    border-color:#61D0A7;
+
+    color:#01614B;
+
+}
+
+
+.pag.activa {
+
+    background:#00875F;
+
+    border-color:#00875F;
+
+    color:white;
+
+}
+
+
+.pag.deshabilitado {
+
+    opacity:.4;
+
+    pointer-events:none;
+
+}
+
+
+.modal-fondo {
+
+    position:fixed;
+
+    inset:0;
+
+    background:rgba(0,0,0,.45);
+
+    backdrop-filter:blur(4px);
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    padding:20px;
+
+    z-index:9999;
+
+}
+
+
+.modal-fondo.oculto {
+
+    display:none;
+
+}
+
+
+.modal-caja {
+
+    background:white;
+
+    width:100%;
+
+    max-width:600px;
+
+    border-radius:18px;
+
+    box-shadow:0 20px 60px rgba(0,0,0,.20);
+
+    overflow:hidden;
+
+}
+
+
+.modal-caja.pequeno {
+
+    max-width:430px;
+
+}
+
+
+.modal-header {
+
+    padding:18px 24px;
+
+    border-bottom:1px solid #E5E7EB;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:space-between;
+
+}
+
+
+.modal-header h3 {
+
+    margin:0;
+
+    color:#01614B;
+
+    font-size:20px;
+
+    font-weight:700;
+
+}
+
+
+.btn-cerrar {
+
+    background:none;
+
+    border:none;
+
+    cursor:pointer;
+
+    font-size:20px;
+
+    color:#5F6673;
+
+}
+
+
+.modal-body {
+
+    padding:24px;
+
+}
+
+
+.modal-footer {
+
+    padding:16px 24px;
+
+    border-top:1px solid #E5E7EB;
+
+    display:flex;
+
+    justify-content:flex-end;
+
+    gap:10px;
+
+}
+
+
+.btn-cancelar {
+
+    background:white;
+
+    border:1px solid #D1D5DB;
+
+    border-radius:10px;
+
+    padding:10px 20px;
+
+    cursor:pointer;
+
+    font-weight:600;
+
+}
+
+
+.btn-eliminar {
+
+    background:#E53935;
+
+    color:white;
+
+    border:none;
+
+    border-radius:10px;
+
+    padding:10px 20px;
+
+    cursor:pointer;
+
+    font-weight:600;
+
+}
+
 </style>
 
-<div class="max-w-7xl mx-auto font-sans-ventanet">
 
-    <!-- Encabezado -->
+<div class="max-w-7xl mx-auto">
+
+
+    <!-- ========================================================
+         ENCABEZADO
+    ========================================================= -->
+
     <div class="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+
         <div>
-            <h2 class="text-3xl font-bold font-serif-ventanet" style="color:#01614B;">Gestionar Clientes</h2>
-            <p class="text-sm mt-1" style="color:#5F6673;">Administra los clientes de tu negocio</p>
+
+            <h2
+                class="text-3xl font-bold font-serif-ventanet"
+                style="color:#01614B;"
+            >
+                Gestionar Clientes
+            </h2>
+
+
+            <p
+                class="text-sm mt-1"
+                style="color:#5F6673;"
+            >
+                Administra los clientes de tu negocio
+            </p>
+
         </div>
-        <button onclick="abrirModal('modalCrear')" class="btn-primario px-5 py-2.5">
-            <i class="fas fa-user-plus"></i> Nuevo Cliente
+
+
+        <button
+            type="button"
+            onclick="abrirModal('modalCrear')"
+            class="btn-primario"
+        >
+
+            <i class="fas fa-user-plus"></i>
+
+            Nuevo Cliente
+
         </button>
+
     </div>
 
-    <!-- Alerta -->
-    <?php if (isset($_SESSION['alert'])): ?>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            Swal.fire({
-                icon:  '<?= htmlspecialchars($_SESSION['alert']['icon'])  ?>',
-                title: <?= json_encode($_SESSION['alert']['title']) ?>,
-                text:  <?= json_encode($_SESSION['alert']['text'])  ?>,
-                confirmButtonText: 'Entendido', confirmButtonColor: '#00875F',
-                customClass: { popup:'rounded-[20px]', confirmButton:'rounded-lg px-6 py-2.5' }
-            });
-        });
-    </script>
-    <?php unset($_SESSION['alert']); endif; ?>
 
-    <!-- Tabla -->
-    <div class="bg-white rounded-2xl border overflow-hidden" style="border-color:#E5E7EB;">
+    <!-- ========================================================
+         ALERTAS
+    ========================================================= -->
+
+    <?php if (isset($_SESSION['alert'])): ?>
+
+        <script>
+
+        document.addEventListener(
+            'DOMContentLoaded',
+            function() {
+
+                Swal.fire({
+
+                    icon:
+                        <?= json_encode(
+                            $_SESSION['alert']['icon'] ?? 'info'
+                        ) ?>,
+
+                    title:
+                        <?= json_encode(
+                            $_SESSION['alert']['title'] ?? 'Aviso'
+                        ) ?>,
+
+                    text:
+                        <?= json_encode(
+                            $_SESSION['alert']['text'] ?? ''
+                        ) ?>,
+
+                    confirmButtonText:
+                        'Entendido',
+
+                    confirmButtonColor:
+                        '#00875F'
+
+                });
+
+            }
+        );
+
+        </script>
+
+        <?php unset($_SESSION['alert']); ?>
+
+    <?php endif; ?>
+
+
+    <!-- ========================================================
+         TABLA
+    ========================================================= -->
+
+    <div
+        class="bg-white rounded-2xl border overflow-hidden"
+        style="border-color:#E5E7EB;"
+    >
 
         <div class="overflow-x-auto">
+
             <table class="w-full text-left border-collapse">
+
                 <thead>
+
                     <tr style="background:#01614B;">
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide" style="color:#fff;">Nombre Completo</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide" style="color:#fff;">Correo</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide" style="color:#fff;">Teléfono</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-center" style="color:#fff;">Estado</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-center" style="color:#fff;">Fecha registro</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-center" style="color:#fff;">Acciones</th>
+
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white">
+                            Nombre Completo
+                        </th>
+
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white">
+                            Correo
+                        </th>
+
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white">
+                            Teléfono
+                        </th>
+
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white text-center">
+                            Estado
+                        </th>
+
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white text-center">
+                            Fecha registro
+                        </th>
+
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white text-center">
+                            Acciones
+                        </th>
+
                     </tr>
+
                 </thead>
+
+
                 <tbody>
-                    <?php foreach ($clientes as $c):
-                        $isActivo = isset($c['estado']) && strtolower($c['estado']) === 'activo';
-                        $bgFila   = $isActivo ? '#fff'    : '#FDECEC';
-                        $bgHover  = $isActivo ? '#F8F8F8' : '#fde0e0';
+
+
+                <?php foreach ($clientes as $c): ?>
+
+
+                    <?php
+
+                    $estado = strtolower(
+                        (string)($c['estado'] ?? '')
+                    );
+
+
+                    $activo =
+                        $estado === 'activo' ||
+                        $estado === '1';
+
+
+                    $fila = $activo
+                        ? '#FFFFFF'
+                        : '#FDECEC';
+
+
+                    $hover = $activo
+                        ? '#F8F8F8'
+                        : '#FDE0E0';
+
+
+                    $idCliente =
+                        (int)($c['id_cliente'] ?? 0);
+
+
+                    $nombre =
+                        $c['nombre'] ?? '';
+
                     ?>
-                    <tr style="border-bottom:1px solid #E5E7EB;background:<?= $bgFila ?>;transition:background .15s;"
-                        onmouseover="this.style.background='<?= $bgHover ?>'"
-                        onmouseout="this.style.background='<?= $bgFila ?>'">
 
-                        <td class="px-5 py-3.5 font-bold text-sm" style="color:#171717;">
-                            <?= htmlspecialchars($c['nombre']) ?>
+
+                    <tr
+
+                        style="
+                            border-bottom:1px solid #E5E7EB;
+                            background:<?= $fila ?>;
+                        "
+
+                        onmouseover="
+                            this.style.background='<?= $hover ?>'
+                        "
+
+                        onmouseout="
+                            this.style.background='<?= $fila ?>'
+                        "
+                    >
+
+
+                        <!-- NOMBRE -->
+
+                        <td
+                            class="px-5 py-3.5 font-bold text-sm"
+                        >
+
+                            <?= htmlspecialchars(
+                                $nombre,
+                                ENT_QUOTES,
+                                'UTF-8'
+                            ) ?>
+
                         </td>
 
-                        <td class="px-5 py-3.5 text-sm" style="color:#5F6673;">
-                            <?= !empty($c['correo']) ? htmlspecialchars($c['correo']) : '<span style="color:#9CA3AF;font-style:italic;">Sin correo</span>' ?>
-                        </td>
 
-                        <td class="px-5 py-3.5 text-sm" style="color:#5F6673;">
-                            <?= !empty($c['telefono']) ? htmlspecialchars($c['telefono']) : '<span style="color:#9CA3AF;font-style:italic;">Sin teléfono</span>' ?>
-                        </td>
+                        <!-- CORREO -->
 
-                        <td class="px-5 py-3.5 text-center">
-                            <?php if ($isActivo): ?>
-                                <span style="background:#DDF5EC;color:#00875F;border:1px solid #61D0A7;padding:3px 12px;border-radius:999px;font-size:.75rem;font-weight:700;display:inline-block;">Activo</span>
+                        <td
+                            class="px-5 py-3.5 text-sm"
+                            style="color:#5F6673;"
+                        >
+
+                            <?php if (!empty($c['correo'])): ?>
+
+                                <?= htmlspecialchars(
+                                    $c['correo'],
+                                    ENT_QUOTES,
+                                    'UTF-8'
+                                ) ?>
+
                             <?php else: ?>
-                                <span style="background:#fde8e8;color:#E53935;border:1px solid #E53935;padding:3px 12px;border-radius:999px;font-size:.75rem;font-weight:700;display:inline-block;">Inactivo</span>
+
+                                <span
+                                    style="
+                                        color:#9CA3AF;
+                                        font-style:italic;
+                                    "
+                                >
+                                    Sin correo
+                                </span>
+
                             <?php endif; ?>
+
                         </td>
 
-                        <td class="px-5 py-3.5 text-center text-sm" style="color:#5F6673;">
-                            <?= !empty($c['fecha_registro']) ? date('d/m/Y', strtotime($c['fecha_registro'])) : '—' ?>
+
+                        <!-- TELÉFONO -->
+
+                        <td
+                            class="px-5 py-3.5 text-sm"
+                            style="color:#5F6673;"
+                        >
+
+                            <?php if (!empty($c['telefono'])): ?>
+
+                                <?= htmlspecialchars(
+                                    $c['telefono'],
+                                    ENT_QUOTES,
+                                    'UTF-8'
+                                ) ?>
+
+                            <?php else: ?>
+
+                                <span
+                                    style="
+                                        color:#9CA3AF;
+                                        font-style:italic;
+                                    "
+                                >
+                                    Sin teléfono
+                                </span>
+
+                            <?php endif; ?>
+
                         </td>
 
-                        <td class="px-5 py-3.5">
-                            <div style="display:flex;align-items:center;justify-content:center;gap:8px;">
-                                <!-- Editar -->
-                                <button type="button" onclick="abrirModalEditar(<?= htmlspecialchars(json_encode($c)) ?>)"
+
+                        <!-- ESTADO -->
+
+                        <td
+                            class="px-5 py-3.5 text-center"
+                        >
+
+                            <?php if ($activo): ?>
+
+                                <span
+                                    style="
+                                        background:#DDF5EC;
+                                        color:#00875F;
+                                        border:1px solid #61D0A7;
+                                        padding:3px 12px;
+                                        border-radius:999px;
+                                        font-size:.75rem;
+                                        font-weight:700;
+                                    "
+                                >
+                                    Activo
+                                </span>
+
+                            <?php else: ?>
+
+                                <span
+                                    style="
+                                        background:#FDE8E8;
+                                        color:#E53935;
+                                        border:1px solid #E53935;
+                                        padding:3px 12px;
+                                        border-radius:999px;
+                                        font-size:.75rem;
+                                        font-weight:700;
+                                    "
+                                >
+                                    Inactivo
+                                </span>
+
+                            <?php endif; ?>
+
+                        </td>
+
+
+                        <!-- FECHA -->
+
+                        <td
+                            class="px-5 py-3.5 text-center text-sm"
+                            style="color:#5F6673;"
+                        >
+
+                            <?php
+
+                            if (!empty($c['fecha_registro'])) {
+
+                                echo date(
+                                    'd/m/Y',
+                                    strtotime(
+                                        $c['fecha_registro']
+                                    )
+                                );
+
+                            } else {
+
+                                echo '—';
+
+                            }
+
+                            ?>
+
+                        </td>
+
+
+                        <!-- ACCIONES -->
+
+                        <td
+                            class="px-5 py-3.5"
+                        >
+
+                            <div
+                                style="
+                                    display:flex;
+                                    align-items:center;
+                                    justify-content:center;
+                                    gap:8px;
+                                "
+                            >
+
+
+                                <!-- EDITAR -->
+
+                                <button
+                                    type="button"
+
+                                    class="btn-accion"
+
                                     title="Editar"
-                                    style="width:32px;height:32px;border-radius:8px;border:1px solid #E5E7EB;background:#fff;color:#00875F;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;"
-                                    onmouseover="this.style.background='#DDF5EC';this.style.borderColor='#61D0A7';"
-                                    onmouseout="this.style.background='#fff';this.style.borderColor='#E5E7EB';">
-                                    <i class="fas fa-pen" style="font-size:.75rem;"></i>
+
+                                    onclick='abrirModalEditar(
+                                        <?= json_encode(
+                                            $c,
+                                            JSON_HEX_TAG |
+                                            JSON_HEX_APOS |
+                                            JSON_HEX_QUOT |
+                                            JSON_HEX_AMP
+                                        ) ?>
+                                    )'
+
+                                    style="
+                                        color:#00875F;
+                                        border:1px solid #61D0A7;
+                                    "
+                                >
+
+                                    <i class="fas fa-pen"></i>
+
                                 </button>
 
-                                <!-- Activar/Desactivar -->
-                                <button type="button"
-                                    onclick="location.href='../../controllers/ClienteController.php?accion=toggleEstado&id=<?= $c['id_cliente'] ?>&estado=<?= $c['estado'] ?? 'activo' ?>'"
-                                    title="<?= $isActivo ? 'Desactivar' : 'Activar' ?>"
-                                    style="width:32px;height:32px;border-radius:8px;border:1px solid <?= $isActivo ? '#FFB51B' : '#E5E7EB' ?>;background:#fff;color:<?= $isActivo ? '#FFB51B' : '#00875F' ?>;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;"
-                                    onmouseover="this.style.opacity='.75';" onmouseout="this.style.opacity='1';">
-                                    <i class="fas <?= $isActivo ? 'fa-ban' : 'fa-check' ?>" style="font-size:.75rem;"></i>
+
+                                <!-- ACTIVAR / DESACTIVAR -->
+
+                                <button
+                                    type="button"
+
+                                    class="btn-accion"
+
+                                    title="<?= $activo
+                                        ? 'Desactivar'
+                                        : 'Activar'
+                                    ?>"
+
+                                    onclick="
+                                        cambiarEstadoCliente(
+                                            <?= $idCliente ?>
+                                        )
+                                    "
+
+                                    style="
+                                        color:<?= $activo
+                                            ? '#FFB51B'
+                                            : '#00875F'
+                                        ?>;
+
+                                        border:1px solid <?= $activo
+                                            ? '#FFB51B'
+                                            : '#61D0A7'
+                                        ?>;
+                                    "
+                                >
+
+                                    <i
+                                        class="fas <?= $activo
+                                            ? 'fa-ban'
+                                            : 'fa-check'
+                                        ?>"
+                                    ></i>
+
                                 </button>
 
-                                <!-- Eliminar -->
-                                <button type="button"
-                                    onclick="abrirModalEliminar(<?= $c['id_cliente'] ?>, '<?= htmlspecialchars(addslashes($c['nombre'])) ?>')"
+
+                                <!-- ELIMINAR -->
+
+                                <button
+                                    type="button"
+
+                                    class="btn-accion"
+
                                     title="Eliminar"
-                                    style="width:32px;height:32px;border-radius:8px;border:1px solid #fde8e8;background:#fff;color:#E53935;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;"
-                                    onmouseover="this.style.background='#fde8e8';this.style.borderColor='#E53935';"
-                                    onmouseout="this.style.background='#fff';this.style.borderColor='#fde8e8';">
-                                    <i class="fas fa-trash" style="font-size:.75rem;"></i>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
 
-                    <?php if (empty($clientes)): ?>
-                    <tr>
-                        <td colspan="6" style="padding:48px;text-align:center;">
-                            <div style="width:56px;height:56px;background:#F8F8F8;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;border:1px solid #E5E7EB;">
-                                <i class="fas fa-users-slash" style="color:#9CA3AF;font-size:1.3rem;"></i>
+                                    onclick='abrirModalEliminar(
+                                        <?= $idCliente ?>,
+                                        <?= json_encode(
+                                            $nombre,
+                                            JSON_HEX_TAG |
+                                            JSON_HEX_APOS |
+                                            JSON_HEX_QUOT |
+                                            JSON_HEX_AMP
+                                        ) ?>
+                                    )'
+
+                                    style="
+                                        color:#E53935;
+                                        border:1px solid #E53935;
+                                    "
+                                >
+
+                                    <i class="fas fa-trash"></i>
+
+                                </button>
+
+
                             </div>
-                            <p style="color:#5F6673;font-weight:600;">No hay clientes registrados.</p>
+
                         </td>
+
                     </tr>
-                    <?php endif; ?>
+
+
+                <?php endforeach; ?>
+
+
+                <?php if (empty($clientes)): ?>
+
+                    <tr>
+
+                        <td
+                            colspan="6"
+
+                            style="
+                                padding:48px;
+                                text-align:center;
+                                color:#5F6673;
+                                font-weight:600;
+                            "
+                        >
+
+                            No hay clientes registrados.
+
+                        </td>
+
+                    </tr>
+
+                <?php endif; ?>
+
+
                 </tbody>
+
             </table>
+
         </div>
 
-        <!-- Paginación -->
-        <?php if ($totalPags > 1): ?>
-        <div style="padding:14px 20px;border-top:1px solid #E5E7EB;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-            <span style="font-size:.8rem;color:#5F6673;">
-                Página <strong style="color:#171717;"><?= $pagActual ?></strong>
-                de <strong style="color:#171717;"><?= $totalPags ?></strong>
-            </span>
 
-            <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                <a href="?pagina=<?= $pagActual - 1 ?>" class="pag-btn <?= $pagActual <= 1 ? 'deshabilitado' : '' ?>">← Anterior</a>
+        <!-- ======================================================
+             PAGINACIÓN
+        ======================================================= -->
 
-                <?php for ($pg = 1; $pg <= $totalPags; $pg++): ?>
-                    <a href="?pagina=<?= $pg ?>" class="pag-btn <?= $pg === $pagActual ? 'activa' : '' ?>"><?= $pg ?></a>
+        <?php if ($totalClientes > $porPagina): ?>
+
+            <nav class="paginacion">
+
+
+                <!-- ANTERIOR -->
+
+                <a
+                    class="pag
+                        <?= $paginaActual <= 1
+                            ? 'deshabilitado'
+                            : ''
+                        ?>"
+
+                    href="?pagina=<?= max(
+                        1,
+                        $paginaActual - 1
+                    ) ?>"
+                >
+                    «
+                </a>
+
+
+                <!-- NÚMEROS -->
+
+                <?php for (
+                    $i = 1;
+                    $i <= $totalPaginas;
+                    $i++
+                ): ?>
+
+                    <a
+                        class="pag
+                            <?= $i === $paginaActual
+                                ? 'activa'
+                                : ''
+                            ?>"
+
+                        href="?pagina=<?= $i ?>"
+                    >
+
+                        <?= $i ?>
+
+                    </a>
+
                 <?php endfor; ?>
 
-                <a href="?pagina=<?= $pagActual + 1 ?>" class="pag-btn <?= $pagActual >= $totalPags ? 'deshabilitado' : '' ?>">Siguiente →</a>
-            </div>
-        </div>
+
+                <!-- SIGUIENTE -->
+
+                <a
+                    class="pag
+                        <?= $paginaActual >= $totalPaginas
+                            ? 'deshabilitado'
+                            : ''
+                        ?>"
+
+                    href="?pagina=<?= min(
+                        $totalPaginas,
+                        $paginaActual + 1
+                    ) ?>"
+                >
+                    »
+                </a>
+
+
+            </nav>
+
         <?php endif; ?>
 
+
     </div>
+
 </div>
 
-<!-- MODAL CREAR -->
-<div id="modalCrear" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4"
-     style="background:rgba(0,0,0,.45);backdrop-filter:blur(4px);">
-    <div class="bg-white rounded-2xl w-full max-w-lg shadow-2xl modal-anim overflow-hidden">
-        <div style="background:#F8F8F8;border-bottom:1px solid #E5E7EB;padding:18px 24px;display:flex;align-items:center;justify-content:space-between;">
-            <div style="display:flex;align-items:center;gap:12px;">
-                <div style="width:38px;height:38px;background:#00875F;border-radius:10px;display:flex;align-items:center;justify-content:center;">
-                    <i class="fas fa-user-plus" style="color:#fff;font-size:.9rem;"></i>
-                </div>
-                <h3 class="font-serif-ventanet" style="font-size:1.1rem;color:#171717;">Agregar Cliente</h3>
-            </div>
-            <button onclick="cerrarModal('modalCrear')" style="background:none;border:none;cursor:pointer;color:#9CA3AF;font-size:1.2rem;"><i class="fas fa-times"></i></button>
-        </div>
 
-        <form action="../../controllers/ClienteController.php?accion=registrar" method="POST" style="padding:24px;display:flex;flex-direction:column;gap:14px;">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label style="display:block;font-size:.83rem;font-weight:700;color:#171717;margin-bottom:5px;">Nombre *</label>
-                    <input type="text" name="nombre" required class="campo-input" placeholder="Ej. Juan Pérez">
-                </div>
+<!-- ============================================================
+     MODAL CREAR
+============================================================ -->
 
-                <div>
-                    <label style="display:block;font-size:.83rem;font-weight:700;color:#171717;margin-bottom:5px;">Teléfono</label>
-                    <input type="tel" name="telefono" class="campo-input" placeholder="3001234567">
-                </div>
-            </div>
+<div
+    id="modalCrear"
+    class="modal-fondo oculto"
+>
 
-            <div>
-                <label style="display:block;font-size:.83rem;font-weight:700;color:#171717;margin-bottom:5px;">Correo</label>
-                <input type="email" name="correo" class="campo-input" placeholder="correo@ejemplo.com">
-            </div>
+    <div class="modal-caja">
 
-            <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:14px;border-top:1px solid #E5E7EB;">
-                <button type="button" onclick="cerrarModal('modalCrear')"
-                    style="padding:9px 20px;border-radius:9px;border:1px solid #E5E7EB;background:#fff;color:#5F6673;font-weight:600;cursor:pointer;">Cancelar</button>
 
-                <button type="submit" class="btn-primario" style="padding:9px 24px;">Guardar</button>
-            </div>
-        </form>
-    </div>
-</div>
+        <div class="modal-header">
 
-<!-- MODAL EDITAR -->
-<div id="modalEditar" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4"
-     style="background:rgba(0,0,0,.45);backdrop-filter:blur(4px);">
-    <div class="bg-white rounded-2xl w-full max-w-lg shadow-2xl modal-anim overflow-hidden">
-        <div style="background:#F8F8F8;border-bottom:1px solid #E5E7EB;padding:18px 24px;display:flex;align-items:center;justify-content:space-between;">
-            <div style="display:flex;align-items:center;gap:12px;">
-                <div style="width:38px;height:38px;background:#00875F;border-radius:10px;display:flex;align-items:center;justify-content:center;">
-                    <i class="fas fa-user-edit" style="color:#fff;font-size:.9rem;"></i>
-                </div>
-                <h3 class="font-serif-ventanet" style="font-size:1.1rem;color:#171717;">Editar Cliente</h3>
-            </div>
+            <h3>
+                Agregar Cliente
+            </h3>
 
-            <button onclick="cerrarModal('modalEditar')" style="background:none;border:none;cursor:pointer;color:#9CA3AF;font-size:1.2rem;">
+
+            <button
+                type="button"
+                class="btn-cerrar"
+                onclick="cerrarModal('modalCrear')"
+            >
+
                 <i class="fas fa-times"></i>
+
             </button>
+
         </div>
 
-        <form action="../../controllers/ClienteController.php?accion=editar" method="POST" style="padding:24px;display:flex;flex-direction:column;gap:14px;">
-            <input type="hidden" name="id_cliente" id="editId">
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label style="display:block;font-size:.83rem;font-weight:700;color:#171717;margin-bottom:5px;">Nombre *</label>
-                    <input type="text" name="nombre" id="editNombre" required class="campo-input">
+        <form
+            action="../../controllers/ClienteController.php?accion=registrar"
+            method="POST"
+        >
+
+
+            <div class="modal-body">
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+
+                    <!-- NOMBRE -->
+
+                    <div>
+
+                        <label>
+                            Nombre *
+                        </label>
+
+                        <input
+                            type="text"
+                            name="nombre"
+                            required
+                            class="campo-input"
+                        >
+
+                    </div>
+
+
+                    <!-- TELÉFONO -->
+
+                    <div>
+
+                        <label>
+                            Teléfono
+                        </label>
+
+                        <input
+                            type="text"
+                            name="telefono"
+                            class="campo-input"
+                        >
+
+                    </div>
+
+
+                    <!-- CORREO -->
+
+                    <div class="md:col-span-2">
+
+                        <label>
+                            Correo
+                        </label>
+
+                        <input
+                            type="email"
+                            name="correo"
+                            class="campo-input"
+                        >
+
+                    </div>
+
+
                 </div>
 
-                <div>
-                    <label style="display:block;font-size:.83rem;font-weight:700;color:#171717;margin-bottom:5px;">Teléfono</label>
-                    <input type="text" name="telefono" id="editTelefono" class="campo-input">
-                </div>
             </div>
 
-            <div>
-                <label style="display:block;font-size:.83rem;font-weight:700;color:#171717;margin-bottom:5px;">Correo (no modificable)</label>
-                <input type="email" id="editCorreo" readonly class="campo-input">
+
+            <div class="modal-footer">
+
+                <button
+                    type="button"
+                    class="btn-cancelar"
+                    onclick="cerrarModal('modalCrear')"
+                >
+                    Cancelar
+                </button>
+
+
+                <button
+                    type="submit"
+                    class="btn-primario"
+                >
+                    Guardar Cliente
+                </button>
+
             </div>
 
-            <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:14px;border-top:1px solid #E5E7EB;">
-                <button type="button" onclick="cerrarModal('modalEditar')"
-                    style="padding:9px 20px;border-radius:9px;border:1px solid #E5E7EB;background:#fff;color:#5F6673;font-weight:600;cursor:pointer;">Cancelar</button>
 
-                <button type="submit" class="btn-primario" style="padding:9px 24px;">Guardar</button>
-            </div>
         </form>
+
     </div>
+
 </div>
 
-<!-- MODAL ELIMINAR -->
-<div id="modalEliminar" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4"
-     style="background:rgba(0,0,0,.55);backdrop-filter:blur(4px);">
-    <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl modal-anim overflow-hidden">
-        <div style="padding:36px 32px;text-align:center;">
-            <div style="width:68px;height:68px;background:#fde8e8;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
-                <i class="fas fa-exclamation-triangle" style="color:#E53935;font-size:1.7rem;"></i>
+
+<!-- ============================================================
+     MODAL EDITAR
+============================================================ -->
+
+<div
+    id="modalEditar"
+    class="modal-fondo oculto"
+>
+
+    <div class="modal-caja">
+
+
+        <div class="modal-header">
+
+            <h3>
+                Editar Cliente
+            </h3>
+
+
+            <button
+                type="button"
+                class="btn-cerrar"
+                onclick="cerrarModal('modalEditar')"
+            >
+
+                <i class="fas fa-times"></i>
+
+            </button>
+
+        </div>
+
+
+        <form
+            action="../../controllers/ClienteController.php?accion=editar"
+            method="POST"
+        >
+
+
+            <input
+                type="hidden"
+                name="id_cliente"
+                id="editId"
+            >
+
+
+            <div class="modal-body">
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+
+                    <!-- NOMBRE -->
+
+                    <div>
+
+                        <label>
+                            Nombre *
+                        </label>
+
+                        <input
+                            type="text"
+                            name="nombre"
+                            id="editNombre"
+                            required
+                            class="campo-input"
+                        >
+
+                    </div>
+
+
+                    <!-- TELÉFONO -->
+
+                    <div>
+
+                        <label>
+                            Teléfono
+                        </label>
+
+                        <input
+                            type="text"
+                            name="telefono"
+                            id="editTelefono"
+                            class="campo-input"
+                        >
+
+                    </div>
+
+
+                    <!-- CORREO -->
+
+                    <div class="md:col-span-2">
+
+                        <label>
+                            Correo
+                        </label>
+
+                        <input
+                            type="email"
+                            name="correo"
+                            id="editCorreo"
+                            class="campo-input"
+                        >
+
+                    </div>
+
+
+                </div>
+
             </div>
 
-            <h3 class="font-serif-ventanet" style="font-size:1.3rem;color:#171717;margin-bottom:8px;">Eliminar Cliente</h3>
-            <p style="color:#5F6673;">¿Estás seguro de eliminar a:</p>
-            <p id="elimNombre" style="font-weight:700;color:#171717;font-size:1rem;margin-top:4px;"></p>
-        </div>
 
-        <div style="background:#F8F8F8;border-top:1px solid #E5E7EB;padding:16px 24px;display:flex;justify-content:center;gap:10px;">
-            <button type="button" onclick="cerrarModal('modalEliminar')"
-                style="padding:9px 20px;border-radius:9px;border:1px solid #E5E7EB;background:#fff;color:#5F6673;font-weight:600;cursor:pointer;">Cancelar</button>
+            <div class="modal-footer">
 
-            <a id="elimLink" href="#" class="btn-peligro" style="padding:9px 24px;">Sí, eliminar</a>
-        </div>
+                <button
+                    type="button"
+                    class="btn-cancelar"
+                    onclick="cerrarModal('modalEditar')"
+                >
+                    Cancelar
+                </button>
+
+
+                <button
+                    type="submit"
+                    class="btn-primario"
+                >
+                    Guardar Cambios
+                </button>
+
+            </div>
+
+
+        </form>
+
     </div>
+
 </div>
+
+
+<!-- ============================================================
+     MODAL ELIMINAR
+============================================================ -->
+
+<div
+    id="modalEliminar"
+    class="modal-fondo oculto"
+>
+
+    <div class="modal-caja pequeno">
+
+
+        <div
+            style="
+                padding:35px 30px 20px;
+                text-align:center;
+            "
+        >
+
+            <div
+                style="
+                    width:65px;
+                    height:65px;
+                    margin:0 auto 18px;
+                    border-radius:50%;
+                    background:#FDE8E8;
+                    display:flex;
+                    align-items:center;
+                    justify-content:center;
+                "
+            >
+
+                <i
+                    class="fas fa-exclamation-triangle"
+                    style="
+                        color:#E53935;
+                        font-size:28px;
+                    "
+                ></i>
+
+            </div>
+
+
+            <h3
+                style="
+                    margin:0 0 10px;
+                    font-size:21px;
+                    font-weight:700;
+                    color:#171717;
+                "
+            >
+                Eliminar Cliente
+            </h3>
+
+
+            <p
+                style="
+                    margin:0;
+                    color:#5F6673;
+                "
+            >
+                ¿Estás seguro de que deseas eliminar a:
+            </p>
+
+
+            <p
+                id="elimNombre"
+
+                style="
+                    margin:8px 0 0;
+                    font-weight:700;
+                    color:#171717;
+                "
+            ></p>
+
+        </div>
+
+
+        <div class="modal-footer">
+
+            <button
+                type="button"
+                class="btn-cancelar"
+                onclick="cerrarModal('modalEliminar')"
+            >
+                Cancelar
+            </button>
+
+
+            <button
+                type="button"
+                class="btn-eliminar"
+                onclick="confirmarEliminar()"
+            >
+                Sí, eliminar
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
 
 <script>
-    function abrirModal(id) {
-        document.getElementById(id).classList.remove('hidden');
+
+
+// ============================================================
+// ABRIR MODAL
+// ============================================================
+
+function abrirModal(id)
+{
+    const modal =
+        document.getElementById(id);
+
+    if (modal) {
+
+        modal.classList.remove('oculto');
+
+    }
+}
+
+
+// ============================================================
+// CERRAR MODAL
+// ============================================================
+
+function cerrarModal(id)
+{
+    const modal =
+        document.getElementById(id);
+
+    if (modal) {
+
+        modal.classList.add('oculto');
+
+    }
+}
+
+
+// ============================================================
+// EDITAR
+// ============================================================
+
+function abrirModalEditar(cliente)
+{
+
+    document.getElementById('editId').value =
+        cliente.id_cliente || '';
+
+
+    document.getElementById('editNombre').value =
+        cliente.nombre || '';
+
+
+    document.getElementById('editTelefono').value =
+        cliente.telefono || '';
+
+
+    document.getElementById('editCorreo').value =
+        cliente.correo || '';
+
+
+    abrirModal('modalEditar');
+}
+
+
+// ============================================================
+// ELIMINAR
+// ============================================================
+
+let clienteEliminar = null;
+
+
+function abrirModalEliminar(
+    id,
+    nombre
+)
+{
+
+    clienteEliminar = id;
+
+
+    document.getElementById(
+        'elimNombre'
+    ).textContent = nombre;
+
+
+    abrirModal('modalEliminar');
+}
+
+
+function confirmarEliminar()
+{
+
+    if (!clienteEliminar) {
+
+        return;
+
     }
 
-    function cerrarModal(id) {
-        document.getElementById(id).classList.add('hidden');
+
+    window.location.href =
+        '../../controllers/ClienteController.php' +
+        '?accion=eliminar' +
+        '&id=' +
+        encodeURIComponent(clienteEliminar);
+}
+
+
+// ============================================================
+// CAMBIAR ESTADO
+// ============================================================
+
+function cambiarEstadoCliente(id)
+{
+
+    if (!id) {
+
+        return;
+
     }
 
-    function abrirModalEditar(c) {
-        document.getElementById('editId').value       = c.id_cliente;
-        document.getElementById('editNombre').value   = c.nombre   ?? '';
-        document.getElementById('editTelefono').value = c.telefono ?? '';
-        document.getElementById('editCorreo').value   = c.correo   ?? '';
-        abrirModal('modalEditar');
-    }
 
-    function abrirModalEliminar(id, nombre) {
-        document.getElementById('elimNombre').textContent = nombre;
-        document.getElementById('elimLink').href =
-            '../../controllers/ClienteController.php?accion=eliminar&id=' + id;
-        abrirModal('modalEliminar');
+    window.location.href =
+        '../../controllers/ClienteController.php' +
+        '?accion=toggleEstado' +
+        '&id=' +
+        encodeURIComponent(id);
+}
+
+
+// ============================================================
+// CERRAR MODAL AL HACER CLICK AFUERA
+// ============================================================
+
+document
+    .querySelectorAll('.modal-fondo')
+    .forEach(function(modal) {
+
+        modal.addEventListener(
+            'click',
+            function(e) {
+
+                if (e.target === modal) {
+
+                    modal.classList.add('oculto');
+
+                }
+
+            }
+        );
+
+    });
+
+
+// ============================================================
+// ESC PARA CERRAR
+// ============================================================
+
+document.addEventListener(
+    'keydown',
+    function(e) {
+
+        if (e.key === 'Escape') {
+
+            document
+                .querySelectorAll('.modal-fondo')
+                .forEach(function(modal) {
+
+                    modal.classList.add('oculto');
+
+                });
+
+        }
+
     }
+);
+
 </script>
 
-<?php require_once __DIR__ . '/../layouts/footer.php'; ?>
+
+<?php
+
+require_once __DIR__ . '/../layouts/footer.php';
+
+?>
