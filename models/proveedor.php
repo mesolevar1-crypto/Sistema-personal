@@ -1,6 +1,7 @@
 <?php
 /**
  * Modelo Proveedor
+ *
  * BD real:
  * proveedor (id_proveedor, id_persona, frecuencia_entrega)
  * persona (id_persona, nombre, telefono, correo, estado)
@@ -9,15 +10,23 @@
  * 1 = Activo
  * 0 = Inactivo
  */
+
 class Proveedor {
 
     private $conn;
 
+
     public function __construct($db) {
+
         $this->conn = $db;
+
     }
 
-    // ── Lista todos los proveedores ─────────────────────────
+
+    // ========================================================
+    // LISTA TODOS LOS PROVEEDORES
+    // ========================================================
+
     public function obtenerTodos() {
 
         $sql = "SELECT
@@ -29,17 +38,22 @@ class Proveedor {
                     pe.correo,
                     pe.estado
                 FROM proveedor pr
-                INNER JOIN persona pe 
+                INNER JOIN persona pe
                     ON pr.id_persona = pe.id_persona
-                ORDER BY pe.nombre ASC";
+                ORDER BY pe.id_persona DESC";
 
         $stmt = $this->conn->prepare($sql);
+
         $stmt->execute();
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // ── Obtener proveedor por ID ────────────────────────────
+
+    // ========================================================
+    // OBTENER PROVEEDOR POR ID
+    // ========================================================
+
     public function obtenerPorId($id) {
 
         $sql = "SELECT
@@ -51,37 +65,48 @@ class Proveedor {
                     pe.correo,
                     pe.estado
                 FROM proveedor pr
-                INNER JOIN persona pe 
+                INNER JOIN persona pe
                     ON pr.id_persona = pe.id_persona
                 WHERE pr.id_proveedor = :id
                 LIMIT 1";
 
         $stmt = $this->conn->prepare($sql);
+
         $stmt->bindParam(':id', $id);
+
         $stmt->execute();
 
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
-    // ── Proveedores activos para selects ────────────────────
+
+    // ========================================================
+    // PROVEEDORES ACTIVOS PARA SELECTS
+    // ========================================================
+
     public function obtenerActivos() {
 
         $sql = "SELECT
                     pr.id_proveedor,
                     pe.nombre
                 FROM proveedor pr
-                INNER JOIN persona pe 
+                INNER JOIN persona pe
                     ON pr.id_persona = pe.id_persona
                 WHERE pe.estado = 1
                 ORDER BY pe.nombre ASC";
 
         $stmt = $this->conn->prepare($sql);
+
         $stmt->execute();
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // ── Registrar proveedor ─────────────────────────────────
+
+    // ========================================================
+    // REGISTRAR PROVEEDOR
+    // ========================================================
+
     public function registrar(
         $nombre,
         $telefono,
@@ -93,23 +118,44 @@ class Proveedor {
 
             $this->conn->beginTransaction();
 
-            // PASO 1: Insertar en persona
+
+            // ------------------------------------------------
+            // PASO 1: INSERTAR EN PERSONA
+            // ------------------------------------------------
+
             $stmt = $this->conn->prepare(
-                "INSERT INTO persona 
+                "INSERT INTO persona
                     (nombre, telefono, correo, estado)
-                 VALUES 
+                 VALUES
                     (:nombre, :telefono, :correo, 1)"
             );
 
-            $stmt->bindParam(':nombre', $nombre);
-            $stmt->bindParam(':telefono', $telefono);
-            $stmt->bindParam(':correo', $correo);
+            $stmt->bindParam(
+                ':nombre',
+                $nombre
+            );
+
+            $stmt->bindParam(
+                ':telefono',
+                $telefono
+            );
+
+            $stmt->bindParam(
+                ':correo',
+                $correo
+            );
 
             $stmt->execute();
 
+
+            // Obtener ID de la persona creada
             $id_persona = $this->conn->lastInsertId();
 
-            // PASO 2: Insertar en proveedor
+
+            // ------------------------------------------------
+            // PASO 2: INSERTAR EN PROVEEDOR
+            // ------------------------------------------------
+
             $stmt2 = $this->conn->prepare(
                 "INSERT INTO proveedor
                     (id_persona, frecuencia_entrega)
@@ -117,7 +163,11 @@ class Proveedor {
                     (:id_persona, :frecuencia_entrega)"
             );
 
-            $stmt2->bindParam(':id_persona', $id_persona);
+            $stmt2->bindParam(
+                ':id_persona',
+                $id_persona
+            );
+
             $stmt2->bindParam(
                 ':frecuencia_entrega',
                 $frecuencia_entrega
@@ -125,21 +175,31 @@ class Proveedor {
 
             $stmt2->execute();
 
+
+            // Confirmar transacción
             $this->conn->commit();
 
+
             return true;
+
 
         } catch (Exception $e) {
 
             if ($this->conn->inTransaction()) {
+
                 $this->conn->rollBack();
+
             }
 
             return "Error al registrar: " . $e->getMessage();
         }
     }
 
-    // ── Editar proveedor ────────────────────────────────────
+
+    // ========================================================
+    // EDITAR PROVEEDOR
+    // ========================================================
+
     public function editar(
         $id_proveedor,
         $nombre,
@@ -152,16 +212,26 @@ class Proveedor {
 
             $this->conn->beginTransaction();
 
-            // Buscar persona relacionada
+
+            // ------------------------------------------------
+            // BUSCAR PERSONA RELACIONADA
+            // ------------------------------------------------
+
             $stmt = $this->conn->prepare(
                 "SELECT id_persona
                  FROM proveedor
                  WHERE id_proveedor = ?"
             );
 
-            $stmt->execute([$id_proveedor]);
+            $stmt->execute([
+                $id_proveedor
+            ]);
 
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $row = $stmt->fetch(
+                PDO::FETCH_ASSOC
+            );
+
 
             if (!$row) {
 
@@ -170,9 +240,14 @@ class Proveedor {
                 return "Proveedor no encontrado";
             }
 
+
             $id_persona = $row['id_persona'];
 
-            // Actualizar persona
+
+            // ------------------------------------------------
+            // ACTUALIZAR PERSONA
+            // ------------------------------------------------
+
             $stmtPersona = $this->conn->prepare(
                 "UPDATE persona
                  SET nombre = ?,
@@ -181,6 +256,7 @@ class Proveedor {
                  WHERE id_persona = ?"
             );
 
+
             $stmtPersona->execute([
                 $nombre,
                 $telefono,
@@ -188,33 +264,48 @@ class Proveedor {
                 $id_persona
             ]);
 
-            // Actualizar proveedor
+
+            // ------------------------------------------------
+            // ACTUALIZAR PROVEEDOR
+            // ------------------------------------------------
+
             $stmtProveedor = $this->conn->prepare(
                 "UPDATE proveedor
                  SET frecuencia_entrega = ?
                  WHERE id_proveedor = ?"
             );
 
+
             $stmtProveedor->execute([
                 $frecuencia_entrega,
                 $id_proveedor
             ]);
 
+
+            // Confirmar
             $this->conn->commit();
 
+
             return true;
+
 
         } catch (Exception $e) {
 
             if ($this->conn->inTransaction()) {
+
                 $this->conn->rollBack();
+
             }
 
             return "Error al actualizar: " . $e->getMessage();
         }
     }
 
-    // ── Toggle estado ───────────────────────────────────────
+
+    // ========================================================
+    // ACTIVAR / DESACTIVAR
+    // ========================================================
+
     public function toggleEstado(
         $id_proveedor,
         $estadoActual
@@ -222,25 +313,45 @@ class Proveedor {
 
         try {
 
+
+            // ------------------------------------------------
+            // BUSCAR PERSONA RELACIONADA
+            // ------------------------------------------------
+
             $stmt = $this->conn->prepare(
                 "SELECT id_persona
                  FROM proveedor
                  WHERE id_proveedor = ?"
             );
 
-            $stmt->execute([$id_proveedor]);
+            $stmt->execute([
+                $id_proveedor
+            ]);
 
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $row = $stmt->fetch(
+                PDO::FETCH_ASSOC
+            );
+
 
             if (!$row) {
+
                 return "Proveedor no encontrado";
             }
 
+
+            // ------------------------------------------------
+            // CAMBIAR ESTADO
+            // ------------------------------------------------
+
             // 1 = activo → 0 = inactivo
             // 0 = inactivo → 1 = activo
-            $nuevoEstado = ((int)$estadoActual === 1)
-                ? 0
-                : 1;
+
+            $nuevoEstado =
+                ((int)$estadoActual === 1)
+                    ? 0
+                    : 1;
+
 
             $stmt = $this->conn->prepare(
                 "UPDATE persona
@@ -248,12 +359,15 @@ class Proveedor {
                  WHERE id_persona = ?"
             );
 
+
             $stmt->execute([
                 $nuevoEstado,
                 $row['id_persona']
             ]);
 
+
             return true;
+
 
         } catch (Exception $e) {
 
@@ -261,41 +375,78 @@ class Proveedor {
         }
     }
 
-    // ── Eliminar proveedor ──────────────────────────────────
+
+    // ========================================================
+    // ELIMINAR PROVEEDOR
+    // ========================================================
+
     public function eliminar($id_proveedor) {
 
         try {
 
-            // Verificar si tiene compras
+
+            // ------------------------------------------------
+            // VERIFICAR SI TIENE COMPRAS
+            // ------------------------------------------------
+
             $stmtV = $this->conn->prepare(
                 "SELECT COUNT(*) AS total
                  FROM compra
                  WHERE id_proveedor = ?"
             );
 
-            $stmtV->execute([$id_proveedor]);
 
-            $totalCompras = intval(
-                $stmtV->fetch(PDO::FETCH_ASSOC)['total']
-            );
+            $stmtV->execute([
+                $id_proveedor
+            ]);
 
+
+            $resultadoCompra =
+                $stmtV->fetch(
+                    PDO::FETCH_ASSOC
+                );
+
+
+            $totalCompras =
+                intval(
+                    $resultadoCompra['total']
+                );
+
+
+            // Si tiene compras no se puede eliminar
             if ($totalCompras > 0) {
 
                 return "No se puede eliminar: este proveedor tiene compras registradas.";
             }
 
+
+            // ------------------------------------------------
+            // INICIAR TRANSACCIÓN
+            // ------------------------------------------------
+
             $this->conn->beginTransaction();
 
-            // Buscar persona relacionada
+
+            // ------------------------------------------------
+            // BUSCAR PERSONA RELACIONADA
+            // ------------------------------------------------
+
             $stmt = $this->conn->prepare(
                 "SELECT id_persona
                  FROM proveedor
                  WHERE id_proveedor = ?"
             );
 
-            $stmt->execute([$id_proveedor]);
 
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            $stmt->execute([
+                $id_proveedor
+            ]);
+
+
+            $row = $stmt->fetch(
+                PDO::FETCH_ASSOC
+            );
+
 
             if (!$row) {
 
@@ -304,44 +455,68 @@ class Proveedor {
                 return "Proveedor no encontrado";
             }
 
-            $id_persona = $row['id_persona'];
 
-            // Eliminar productos_precio asociados
-            $stmt = $this->conn->prepare(
-                "DELETE FROM productos_precio
-                 WHERE id_proveedor = ?"
-            );
+            $id_persona =
+                $row['id_persona'];
 
-            $stmt->execute([$id_proveedor]);
 
-            // Eliminar proveedor
+            // ------------------------------------------------
+            // ELIMINAR PROVEEDOR
+            // ------------------------------------------------
+
             $stmt = $this->conn->prepare(
                 "DELETE FROM proveedor
                  WHERE id_proveedor = ?"
             );
 
-            $stmt->execute([$id_proveedor]);
 
-            // Eliminar persona
+            $stmt->execute([
+                $id_proveedor
+            ]);
+
+
+            // ------------------------------------------------
+            // ELIMINAR PERSONA RELACIONADA
+            // ------------------------------------------------
+
             $stmt = $this->conn->prepare(
                 "DELETE FROM persona
                  WHERE id_persona = ?"
             );
 
-            $stmt->execute([$id_persona]);
+
+            $stmt->execute([
+                $id_persona
+            ]);
+
+
+            // ------------------------------------------------
+            // CONFIRMAR ELIMINACIÓN
+            // ------------------------------------------------
 
             $this->conn->commit();
 
+
             return true;
+
 
         } catch (Exception $e) {
 
+
+            // Si ocurre un error,
+            // deshacer todos los cambios
+
             if ($this->conn->inTransaction()) {
+
                 $this->conn->rollBack();
+
             }
+
 
             return "Error al eliminar: " . $e->getMessage();
         }
     }
+
 }
+
 ?>

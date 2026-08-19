@@ -1,8 +1,4 @@
 <?php
-// ============================================================
-// Vista: Gestión de Proveedores
-// Acceso: Solo Administrador
-// ============================================================
 session_start();
 
 if (!isset($_SESSION['usuario'])) {
@@ -13,84 +9,52 @@ if (!isset($_SESSION['usuario'])) {
 require_once __DIR__ . '/../../config/databse.php';
 require_once __DIR__ . '/../../models/proveedor.php';
 
-$database       = new Database();
-$db             = $database->conectar();
+$db = (new Database())->conectar();
 $proveedorModel = new Proveedor($db);
+
 $todosProveedores = $proveedorModel->obtenerTodos();
 
-// ── Paginación: 10 por página ────────────────────────────────
-$porPagina        = 10;
+$porPagina = 5;
 $totalProveedores = count($todosProveedores);
-$totalPaginas     = (int) ceil($totalProveedores / $porPagina);
-$paginaActual     = max(1, min((int)($_GET['pagina'] ?? 1), max(1, $totalPaginas)));
-$offset           = ($paginaActual - 1) * $porPagina;
-$proveedores      = array_slice($todosProveedores, $offset, $porPagina);
+$totalPaginas = max(1, ceil($totalProveedores / $porPagina));
+$paginaActual = max(1, min((int)($_GET['pagina'] ?? 1), $totalPaginas));
+$inicio = ($paginaActual - 1) * $porPagina;
+$proveedores = array_slice($todosProveedores, $inicio, $porPagina);
 
 $titulo = "Panel de proveedores - Administrador";
+
 require_once __DIR__ . '/../layouts/header.php';
 require_once __DIR__ . '/../layouts/sidebar.php';
 ?>
 
 <style>
-    /* ── Botones ── */
-    .btn-primario {
-        background: #00875F; color: #fff;
-        border-radius: 10px; border: none; font-weight: 600;
-        font-family: 'Outfit', sans-serif; cursor: pointer;
-        transition: background .18s, transform .15s, box-shadow .18s;
-        box-shadow: 0 4px 12px rgba(0,135,95,.22);
-        display: inline-flex; align-items: center; gap: 6px;
-    }
-    .btn-primario:hover { background: #01614B; transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,135,95,.30); }
-
-    .btn-peligro {
-        background: #E53935; color: #fff;
-        border-radius: 10px; border: none; font-weight: 600;
-        font-family: 'Outfit', sans-serif; cursor: pointer;
-        transition: background .18s, transform .15s;
-        box-shadow: 0 4px 12px rgba(229,57,53,.22);
-        display: inline-flex; align-items: center; gap: 6px;
-    }
-    .btn-peligro:hover { background: #c62828; transform: translateY(-2px); }
-
-    /* ── Inputs de los modales ── */
-    .campo-input {
-        width: 100%; background: #fff;
-        border: 1.5px solid #E5E7EB; border-radius: 10px;
-        color: #171717; font-family: 'Outfit', sans-serif;
-        font-size: 0.95rem; outline: none;
-        transition: border-color .2s, box-shadow .2s;
-        padding: 10px 14px;
-    }
-    .campo-input:focus { border-color: #61D0A7; box-shadow: 0 0 0 4px rgba(97,208,167,.15); }
-    .campo-input[readonly] { background: #F8F8F8; color: #5F6673; cursor: not-allowed; }
-
-    /* ── Animación modal ── */
-    @keyframes modalRise {
-        from { opacity: 0; transform: translateY(18px) scale(0.98); }
-        to   { opacity: 1; transform: translateY(0)    scale(1); }
-    }
-    .modal-anim { animation: modalRise .28s cubic-bezier(0.22,1,0.36,1) forwards; }
-
-    /* ── Paginación ── */
-    .pag-btn {
-        padding: 7px 13px; border-radius: 8px;
-        border: 1px solid #E5E7EB; background: #fff;
-        color: #5F6673; font-size: 0.85rem; font-weight: 600;
-        text-decoration: none;
-        transition: background .15s, border-color .15s, color .15s;
-    }
-    .pag-btn:hover       { background: #DDF5EC; border-color: #61D0A7; color: #01614B; }
-    .pag-btn.activa      { background: #00875F; border-color: #00875F; color: #fff; }
-    .pag-btn.deshabilitado { opacity: .4; pointer-events: none; }
+.btn-primario,.btn-peligro,.btn-cancelar,.btn-accion,.pag{cursor:pointer;font-weight:600}
+.btn-primario{background:#00875F;color:#fff;border:0;border-radius:10px;padding:10px 20px}
+.btn-primario:hover{background:#01614B}
+.btn-peligro{background:#E53935;color:#fff;border:0;border-radius:10px;padding:10px 20px}
+.btn-peligro:hover{background:#C62828}
+.btn-cancelar{background:#fff;border:1px solid #D1D5DB;border-radius:10px;padding:10px 20px}
+.campo-input{width:100%;box-sizing:border-box;padding:10px 14px;border:1.5px solid #E5E7EB;border-radius:10px;outline:none}
+.campo-input:focus{border-color:#61D0A7;box-shadow:0 0 0 4px rgba(97,208,167,.15)}
+.campo-input[readonly]{background:#F8F8F8;color:#5F6673}
+.paginacion{padding:14px 20px;border-top:1px solid #E5E7EB;display:flex;justify-content:center;gap:6px}
+.pag{width:36px;height:36px;border:1px solid #E5E7EB;border-radius:9px;background:#fff;color:#5F6673;display:flex;align-items:center;justify-content:center;text-decoration:none}
+.pag:hover,.pag.activa{background:#00875F;color:#fff}
+.pag.deshabilitado{opacity:.4;pointer-events:none}
+.btn-accion{width:34px;height:34px;padding:0;border-radius:8px;background:#fff;display:inline-flex;align-items:center;justify-content:center}
+.modal-fondo{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px;z-index:9999}
+.modal-fondo.oculto{display:none}
+.modal-caja{background:#fff;width:100%;max-width:600px;border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.2);overflow:hidden}
+.modal-caja.pequeno{max-width:430px}
+.modal-header{padding:18px 24px;border-bottom:1px solid #E5E7EB;display:flex;align-items:center;justify-content:space-between}
+.modal-header h3{margin:0;color:#01614B;font-size:20px;font-weight:700}
+.btn-cerrar{background:none;border:0;cursor:pointer;font-size:20px;color:#5F6673}
+.modal-body{padding:24px}
+.modal-footer{padding:16px 24px;border-top:1px solid #E5E7EB;display:flex;justify-content:flex-end;gap:10px}
 </style>
 
-<!-- ════════════════════════════════════════════
-     CONTENIDO PRINCIPAL
-════════════════════════════════════════════ -->
-<div class="max-w-7xl mx-auto font-sans-ventanet">
+<div class="max-w-7xl mx-auto">
 
-    <!-- Encabezado + botón -->
     <div class="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
         <div>
             <h2 class="text-3xl font-bold font-serif-ventanet" style="color:#01614B;">
@@ -100,328 +64,369 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                 Administra los proveedores de tu negocio
             </p>
         </div>
-        <button onclick="openModal('modalCrear')" class="btn-primario px-5 py-2.5">
+
+        <button type="button" onclick="abrirModal('modalCrear')" class="btn-primario">
             <i class="fas fa-truck"></i> Nuevo Proveedor
         </button>
     </div>
 
-    <!-- Alerta de sesión -->
     <?php if (isset($_SESSION['alert'])): ?>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            Swal.fire({
-                icon:  '<?= htmlspecialchars($_SESSION['alert']['icon'])  ?>',
-                title: <?= json_encode($_SESSION['alert']['title']) ?>,
-                text:  <?= json_encode($_SESSION['alert']['text'])  ?>,
-                confirmButtonText:  'Entendido',
-                confirmButtonColor: '#00875F',
-                customClass: { popup: 'rounded-[20px]', confirmButton: 'rounded-lg px-6 py-2.5 font-semibold' }
-            });
-        });
-    </script>
-    <?php unset($_SESSION['alert']); endif; ?>
+        <script>
+        document.addEventListener('DOMContentLoaded',()=>Swal.fire({
+            icon:<?= json_encode($_SESSION['alert']['icon']) ?>,
+            title:<?= json_encode($_SESSION['alert']['title']) ?>,
+            text:<?= json_encode($_SESSION['alert']['text']) ?>,
+            confirmButtonText:'Entendido',
+            confirmButtonColor:'#00875F'
+        }));
+        </script>
+        <?php unset($_SESSION['alert']); ?>
+    <?php endif; ?>
 
-    <!-- ── Tabla ── -->
-    <div class="bg-white rounded-2xl border overflow-hidden" style="border-color:#E5E7EB;">
+    <div class="bg-white rounded-2xl border overflow-hidden" style="border-color:#E5E7EB">
 
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
                 <thead>
-                    <tr style="background:#01614B;">
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide" style="color:#fff;">Nombre / Empresa</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide" style="color:#fff;">Correo</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide" style="color:#fff;">Teléfono</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide" style="color:#fff;">Frecuencia Entrega</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-center" style="color:#fff;">Estado</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-center" style="color:#fff;">Acciones</th>
+                    <tr style="background:#01614B">
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white">Nombre / Empresa</th>
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white">Correo</th>
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white">Teléfono</th>
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white">Frecuencia Entrega</th>
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white text-center">Estado</th>
+                        <th class="px-5 py-3 text-xs font-bold uppercase text-white text-center">Acciones</th>
                     </tr>
                 </thead>
+
                 <tbody>
-                    <?php foreach ($proveedores as $p):
-                        $isActivo = !isset($p['estado']) || $p['estado'] == 'activo';
-                        $bgFila   = $isActivo ? '#fff'    : '#FDECEC';
-                        $bgHover  = $isActivo ? '#F8F8F8' : '#fde0e0';
-                    ?>
-                    <tr style="border-bottom:1px solid #E5E7EB; background:<?= $bgFila ?>; transition:background .15s;"
-                        onmouseover="this.style.background='<?= $bgHover ?>'"
-                        onmouseout="this.style.background='<?= $bgFila ?>'">
+                <?php foreach ($proveedores as $p):
+                    $estado = (string)($p['estado'] ?? '0');
+                    $activo = $estado === '1';
+                    $id = (int)$p['id_proveedor'];
+                    $nombre = $p['nombre'] ?? '';
+                ?>
+                    <tr style="border-bottom:1px solid #E5E7EB;background:<?= $activo?'#fff':'#FDECEC' ?>">
 
-                        <!-- Nombre -->
-                        <td class="px-5 py-3.5 font-bold text-sm" style="color:#171717;">
-                            <?= htmlspecialchars($p['nombre']) ?>
+                        <td class="px-5 py-3.5 font-bold text-sm">
+                            <?= htmlspecialchars($nombre,ENT_QUOTES,'UTF-8') ?>
                         </td>
 
-                        <!-- Correo -->
-                        <td class="px-5 py-3.5 text-sm" style="color:#5F6673;">
-                            <?php if (!empty($p['correo'])): ?>
-                                <?= htmlspecialchars($p['correo']) ?>
-                            <?php else: ?>
-                                <span style="color:#9CA3AF; font-style:italic;">Sin correo</span>
-                            <?php endif; ?>
+                        <td class="px-5 py-3.5 text-sm" style="color:#5F6673">
+                            <?= !empty($p['correo'])
+                                ? htmlspecialchars($p['correo'],ENT_QUOTES,'UTF-8')
+                                : '<span style="color:#9CA3AF;font-style:italic">Sin correo</span>' ?>
                         </td>
 
-                        <!-- Teléfono -->
-                        <td class="px-5 py-3.5 text-sm" style="color:#5F6673;">
-                            <?php if (!empty($p['telefono'])): ?>
-                                <?= htmlspecialchars($p['telefono']) ?>
-                            <?php else: ?>
-                                <span style="color:#9CA3AF; font-style:italic;">Sin teléfono</span>
-                            <?php endif; ?>
+                        <td class="px-5 py-3.5 text-sm" style="color:#5F6673">
+                            <?= !empty($p['telefono'])
+                                ? htmlspecialchars($p['telefono'],ENT_QUOTES,'UTF-8')
+                                : '<span style="color:#9CA3AF;font-style:italic">Sin teléfono</span>' ?>
                         </td>
 
-                        <!-- Frecuencia -->
-                        <td class="px-5 py-3.5 text-sm" style="color:#5F6673;">
-                            <?php if (!empty($p['frecuencia_entrega'])): ?>
-                                <?= htmlspecialchars($p['frecuencia_entrega']) ?>
-                            <?php else: ?>
-                                <span style="color:#9CA3AF; font-style:italic;">Sin frecuencia</span>
-                            <?php endif; ?>
+                        <td class="px-5 py-3.5 text-sm" style="color:#5F6673">
+                            <?= !empty($p['frecuencia_entrega'])
+                                ? htmlspecialchars($p['frecuencia_entrega'],ENT_QUOTES,'UTF-8')
+                                : '<span style="color:#9CA3AF;font-style:italic">Sin frecuencia</span>' ?>
                         </td>
 
-                        <!-- Estado -->
                         <td class="px-5 py-3.5 text-center">
-                            <?php if ($isActivo): ?>
-                                <span style="background:#DDF5EC; color:#00875F; border:1px solid #61D0A7; padding:3px 12px; border-radius:999px; font-size:.75rem; font-weight:700; display:inline-block;">
-                                    Activo
-                                </span>
-                            <?php else: ?>
-                                <span style="background:#fde8e8; color:#E53935; border:1px solid #E53935; padding:3px 12px; border-radius:999px; font-size:.75rem; font-weight:700; display:inline-block;">
-                                    Inactivo
-                                </span>
-                            <?php endif; ?>
+                            <span style="
+                                background:<?= $activo?'#DDF5EC':'#FDE8E8' ?>;
+                                color:<?= $activo?'#00875F':'#E53935' ?>;
+                                border:1px solid <?= $activo?'#61D0A7':'#E53935' ?>;
+                                padding:3px 12px;border-radius:999px;font-size:.75rem;font-weight:700">
+                                <?= $activo?'Activo':'Inactivo' ?>
+                            </span>
                         </td>
 
-                        <!-- Acciones -->
                         <td class="px-5 py-3.5">
-                            <div style="display:flex; align-items:center; justify-content:center; gap:8px;">
+                            <div style="display:flex;justify-content:center;gap:8px">
 
-                                <!-- Editar -->
                                 <button type="button"
-                                    onclick="openEditModal(<?= htmlspecialchars(json_encode($p)) ?>)"
+                                    class="btn-accion"
                                     title="Editar"
-                                    style="width:32px; height:32px; border-radius:8px; border:1px solid #E5E7EB; background:#fff; color:#00875F; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s;"
-                                    onmouseover="this.style.background='#DDF5EC'; this.style.borderColor='#61D0A7';"
-                                    onmouseout="this.style.background='#fff'; this.style.borderColor='#E5E7EB';">
-                                    <i class="fas fa-pen" style="font-size:.75rem;"></i>
+                                    onclick='abrirModalEditar(<?= json_encode($p,JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?>)'
+                                    style="color:#00875F;border:1px solid #61D0A7">
+                                    <i class="fas fa-pen"></i>
                                 </button>
 
-                                <!-- Activar / Desactivar -->
                                 <button type="button"
-                                    onclick="window.location.href='../../controllers/ProveedorController.php?accion=toggleEstado&id=<?= $p['id_proveedor'] ?>&estado=<?= $p['estado'] ?? 'activo' ?>'"
-                                    title="<?= $isActivo ? 'Desactivar' : 'Activar' ?>"
-                                    style="width:32px; height:32px; border-radius:8px; border:1px solid <?= $isActivo ? '#FFB51B' : '#E5E7EB' ?>; background:#fff; color:<?= $isActivo ? '#FFB51B' : '#00875F' ?>; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s;"
-                                    onmouseover="this.style.opacity='.75';"
-                                    onmouseout="this.style.opacity='1';">
-                                    <i class="fas <?= $isActivo ? 'fa-ban' : 'fa-check' ?>" style="font-size:.75rem;"></i>
+                                    class="btn-accion"
+                                    title="<?= $activo?'Desactivar':'Activar' ?>"
+                                    onclick="cambiarEstadoProveedor(<?= $id ?>,<?= $estado ?>)"
+                                    style="color:<?= $activo?'#FFB51B':'#00875F' ?>;border:1px solid <?= $activo?'#FFB51B':'#61D0A7' ?>">
+                                    <i class="fas <?= $activo?'fa-ban':'fa-check' ?>"></i>
                                 </button>
 
-                                <!-- Eliminar -->
                                 <button type="button"
-                                    onclick="openDeleteModal(<?= $p['id_proveedor'] ?>, '<?= htmlspecialchars(addslashes($p['nombre'])) ?>')"
+                                    class="btn-accion"
                                     title="Eliminar"
-                                    style="width:32px; height:32px; border-radius:8px; border:1px solid #fde8e8; background:#fff; color:#E53935; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s;"
-                                    onmouseover="this.style.background='#fde8e8'; this.style.borderColor='#E53935';"
-                                    onmouseout="this.style.background='#fff'; this.style.borderColor='#fde8e8';">
-                                    <i class="fas fa-trash" style="font-size:.75rem;"></i>
+                                    onclick='abrirModalEliminar(<?= $id ?>,<?= json_encode($nombre,JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?>)'
+                                    style="color:#E53935;border:1px solid #E53935">
+                                    <i class="fas fa-trash"></i>
                                 </button>
 
                             </div>
                         </td>
                     </tr>
-                    <?php endforeach; ?>
 
-                    <?php if (empty($proveedores)): ?>
+                <?php endforeach; ?>
+
+                <?php if (empty($proveedores)): ?>
                     <tr>
-                        <td colspan="6" style="padding:48px; text-align:center;">
-                            <div style="width:56px; height:56px; background:#F8F8F8; border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 12px; border:1px solid #E5E7EB;">
-                                <i class="fas fa-truck" style="color:#9CA3AF; font-size:1.3rem;"></i>
-                            </div>
-                            <p style="color:#5F6673; font-weight:600;">No hay proveedores registrados.</p>
-                            <p style="color:#9CA3AF; font-size:.85rem; margin-top:4px;">Comienza agregando tu primer proveedor.</p>
+                        <td colspan="6" style="padding:48px;text-align:center;color:#5F6673;font-weight:600">
+                            No hay proveedores registrados.
                         </td>
                     </tr>
-                    <?php endif; ?>
+                <?php endif; ?>
                 </tbody>
             </table>
         </div>
 
-        <!-- ── Paginación ── -->
-        <?php if ($totalPaginas > 1): ?>
-        <div style="padding:16px 20px; border-top:1px solid #E5E7EB; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
-            <span style="font-size:.82rem; color:#5F6673;">
-                Página <strong style="color:#171717;"><?= $paginaActual ?></strong>
-                de <strong style="color:#171717;"><?= $totalPaginas ?></strong>
-            </span>
-            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-                <a href="?pagina=<?= $paginaActual - 1 ?>" class="pag-btn <?= $paginaActual <= 1 ? 'deshabilitado' : '' ?>">← Anterior</a>
-                <?php for ($p2 = 1; $p2 <= $totalPaginas; $p2++): ?>
-                    <a href="?pagina=<?= $p2 ?>" class="pag-btn <?= $p2 === $paginaActual ? 'activa' : '' ?>"><?= $p2 ?></a>
+        <?php if ($totalProveedores > $porPagina): ?>
+            <nav class="paginacion">
+
+                <a class="pag <?= $paginaActual<=1?'deshabilitado':'' ?>"
+                   href="?pagina=<?= max(1,$paginaActual-1) ?>">«</a>
+
+                <?php for($i=1;$i<=$totalPaginas;$i++): ?>
+                    <a class="pag <?= $i===$paginaActual?'activa':'' ?>"
+                       href="?pagina=<?= $i ?>">
+                        <?= $i ?>
+                    </a>
                 <?php endfor; ?>
-                <a href="?pagina=<?= $paginaActual + 1 ?>" class="pag-btn <?= $paginaActual >= $totalPaginas ? 'deshabilitado' : '' ?>">Siguiente →</a>
-            </div>
-        </div>
+
+                <a class="pag <?= $paginaActual>=$totalPaginas?'deshabilitado':'' ?>"
+                   href="?pagina=<?= min($totalPaginas,$paginaActual+1) ?>">»</a>
+
+            </nav>
         <?php endif; ?>
 
-    </div><!-- /tabla -->
+    </div>
+</div>
 
-</div><!-- /max-w-7xl -->
 
+<!-- MODAL CREAR -->
 
-<!-- ════════════════════════════════════════════
-     MODALES — lógica sin cambios
-════════════════════════════════════════════ -->
+<div id="modalCrear" class="modal-fondo oculto">
+    <div class="modal-caja">
 
-<!-- Modal: Crear Proveedor -->
-<div id="modalCrear" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4"
-     style="background:rgba(0,0,0,.45); backdrop-filter:blur(4px);">
-    <div class="bg-white rounded-2xl w-full max-w-2xl shadow-2xl modal-anim overflow-hidden">
-
-        <div style="background:#F8F8F8; border-bottom:1px solid #E5E7EB; padding:18px 24px; display:flex; align-items:center; justify-content:space-between;">
-            <div style="display:flex; align-items:center; gap:12px;">
-                <div style="width:38px; height:38px; background:#00875F; border-radius:10px; display:flex; align-items:center; justify-content:center;">
-                    <i class="fas fa-truck" style="color:#fff; font-size:.9rem;"></i>
-                </div>
-                <h3 class="font-serif-ventanet" style="font-size:1.1rem; color:#171717;">Agregar Nuevo Proveedor</h3>
-            </div>
-            <button onclick="closeModal('modalCrear')" style="background:none; border:none; cursor:pointer; color:#9CA3AF; font-size:1.2rem; line-height:1;">
+        <div class="modal-header">
+            <h3>Agregar Nuevo Proveedor</h3>
+            <button type="button" class="btn-cerrar" onclick="cerrarModal('modalCrear')">
                 <i class="fas fa-times"></i>
             </button>
         </div>
 
-        <form action="../../controllers/ProveedorController.php?accion=registrar" method="POST" style="padding:24px; display:flex; flex-direction:column; gap:16px;">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label style="display:block; font-size:.83rem; font-weight:700; color:#171717; margin-bottom:5px;">Nombre / Empresa *</label>
-                    <input type="text" name="nombre" required class="campo-input" placeholder="Ej. Distribuidora Norte">
-                </div>
-                <div>
-                    <label style="display:block; font-size:.83rem; font-weight:700; color:#171717; margin-bottom:5px;">Teléfono</label>
-                    <input type="tel" name="telefono" class="campo-input" placeholder="Ej. 3007081694">
+        <form action="../../controllers/ProveedorController.php?accion=registrar" method="POST">
+
+            <div class="modal-body">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    <div>
+                        <label>Nombre / Empresa *</label>
+                        <input type="text" name="nombre" required class="campo-input"
+                               placeholder="Ej. Distribuidora Norte">
+                    </div>
+
+                    <div>
+                        <label>Teléfono</label>
+                        <input type="text" name="telefono" class="campo-input"
+                               placeholder="Ej. 3007081694">
+                    </div>
+
+                    <div>
+                        <label>Correo Electrónico</label>
+                        <input type="email" name="correo" class="campo-input"
+                               placeholder="proveedor@correo.com">
+                    </div>
+
+                    <div>
+                        <label>Frecuencia de Entrega</label>
+                        <input type="text" name="frecuencia_entrega" class="campo-input"
+                               placeholder="Ej. Semanal, Mensual">
+                    </div>
+
                 </div>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label style="display:block; font-size:.83rem; font-weight:700; color:#171717; margin-bottom:5px;">Correo Electrónico</label>
-                    <input type="email" name="correo" class="campo-input" placeholder="proveedor@correo.com">
-                </div>
-                <div>
-                    <label style="display:block; font-size:.83rem; font-weight:700; color:#171717; margin-bottom:5px;">Frecuencia de Entrega</label>
-                    <input type="text" name="frecuencia_entrega" class="campo-input" placeholder="Ej. Semanal, Mensual">
-                </div>
-            </div>
-            <div style="display:flex; justify-content:flex-end; gap:10px; padding-top:16px; border-top:1px solid #E5E7EB; margin-top:4px;">
-                <button type="button" onclick="closeModal('modalCrear')"
-                    style="padding:9px 20px; border-radius:9px; border:1px solid #E5E7EB; background:#fff; color:#5F6673; font-weight:600; cursor:pointer;">
+
+            <div class="modal-footer">
+                <button type="button" class="btn-cancelar" onclick="cerrarModal('modalCrear')">
                     Cancelar
                 </button>
-                <button type="submit" class="btn-primario" style="padding:9px 24px;">
+                <button type="submit" class="btn-primario">
                     Guardar Proveedor
                 </button>
             </div>
+
         </form>
     </div>
 </div>
 
-<!-- Modal: Editar Proveedor -->
-<div id="modalEditar" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4"
-     style="background:rgba(0,0,0,.45); backdrop-filter:blur(4px);">
-    <div class="bg-white rounded-2xl w-full max-w-2xl shadow-2xl modal-anim overflow-hidden">
 
-        <div style="background:#F8F8F8; border-bottom:1px solid #E5E7EB; padding:18px 24px; display:flex; align-items:center; justify-content:space-between;">
-            <div style="display:flex; align-items:center; gap:12px;">
-                <div style="width:38px; height:38px; background:#00875F; border-radius:10px; display:flex; align-items:center; justify-content:center;">
-                    <i class="fas fa-truck" style="color:#fff; font-size:.9rem;"></i>
-                </div>
-                <h3 class="font-serif-ventanet" style="font-size:1.1rem; color:#171717;">Editar Proveedor</h3>
-            </div>
-            <button onclick="closeModal('modalEditar')" style="background:none; border:none; cursor:pointer; color:#9CA3AF; font-size:1.2rem; line-height:1;">
+<!-- MODAL EDITAR -->
+
+<div id="modalEditar" class="modal-fondo oculto">
+    <div class="modal-caja">
+
+        <div class="modal-header">
+            <h3>Editar Proveedor</h3>
+            <button type="button" class="btn-cerrar" onclick="cerrarModal('modalEditar')">
                 <i class="fas fa-times"></i>
             </button>
         </div>
 
-        <form action="../../controllers/ProveedorController.php?accion=editar" method="POST" style="padding:24px; display:flex; flex-direction:column; gap:16px;">
+        <form action="../../controllers/ProveedorController.php?accion=editar" method="POST">
+
             <input type="hidden" name="id_proveedor" id="edit_id_proveedor">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label style="display:block; font-size:.83rem; font-weight:700; color:#171717; margin-bottom:5px;">Nombre / Empresa *</label>
-                    <input type="text" name="nombre" id="edit_nombre" required class="campo-input">
-                </div>
-                <div>
-                    <label style="display:block; font-size:.83rem; font-weight:700; color:#171717; margin-bottom:5px;">Teléfono</label>
-                    <input type="text" name="telefono" id="edit_telefono" class="campo-input">
+
+            <div class="modal-body">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    <div>
+                        <label>Nombre / Empresa *</label>
+                        <input type="text" name="nombre" id="edit_nombre"
+                               required class="campo-input">
+                    </div>
+
+                    <div>
+                        <label>Teléfono</label>
+                        <input type="text" name="telefono" id="edit_telefono"
+                               class="campo-input">
+                    </div>
+
+                    <div>
+                        <label>Correo Electrónico</label>
+
+                        <input type="hidden" name="correo" id="edit_correo_hidden">
+
+                        <input type="email" id="edit_correo"
+                               readonly class="campo-input">
+                    </div>
+
+                    <div>
+                        <label>Frecuencia de Entrega</label>
+                        <input type="text" name="frecuencia_entrega"
+                               id="edit_frecuencia_entrega"
+                               class="campo-input">
+                    </div>
+
                 </div>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label style="display:block; font-size:.83rem; font-weight:700; color:#171717; margin-bottom:5px;">Correo Electrónico (No modificable)</label>
-                    <input type="hidden" name="correo" id="edit_correo_hidden">
-                    <input type="email" id="edit_correo" readonly class="campo-input">
-                    <p style="font-size:.75rem; color:#9CA3AF; margin-top:4px;">Por motivos de seguridad, el correo no puede ser modificado.</p>
-                </div>
-                <div>
-                    <label style="display:block; font-size:.83rem; font-weight:700; color:#171717; margin-bottom:5px;">Frecuencia de Entrega</label>
-                    <input type="text" name="frecuencia_entrega" id="edit_frecuencia_entrega" class="campo-input" placeholder="Ej. Semanal, Mensual">
-                </div>
-            </div>
-            <div style="display:flex; justify-content:flex-end; gap:10px; padding-top:16px; border-top:1px solid #E5E7EB; margin-top:4px;">
-                <button type="button" onclick="closeModal('modalEditar')"
-                    style="padding:9px 20px; border-radius:9px; border:1px solid #E5E7EB; background:#fff; color:#5F6673; font-weight:600; cursor:pointer;">
+
+            <div class="modal-footer">
+                <button type="button" class="btn-cancelar" onclick="cerrarModal('modalEditar')">
                     Cancelar
                 </button>
-                <button type="submit" class="btn-primario" style="padding:9px 24px;">
+
+                <button type="submit" class="btn-primario">
                     Guardar Cambios
                 </button>
             </div>
+
         </form>
     </div>
 </div>
 
-<!-- Modal: Eliminar Proveedor -->
-<div id="modalEliminar" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4"
-     style="background:rgba(0,0,0,.55); backdrop-filter:blur(4px);">
-    <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl modal-anim overflow-hidden">
 
-        <div style="padding:36px 32px; text-align:center;">
-            <div style="width:72px; height:72px; background:#fde8e8; border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 16px;">
-                <i class="fas fa-exclamation-triangle" style="color:#E53935; font-size:1.8rem;"></i>
+<!-- MODAL ELIMINAR -->
+
+<div id="modalEliminar" class="modal-fondo oculto">
+    <div class="modal-caja pequeno">
+
+        <div style="padding:35px 30px 20px;text-align:center">
+
+            <div style="
+                width:65px;height:65px;margin:0 auto 18px;
+                border-radius:50%;background:#FDE8E8;
+                display:flex;align-items:center;justify-content:center">
+                <i class="fas fa-exclamation-triangle"
+                   style="color:#E53935;font-size:28px"></i>
             </div>
-            <h3 class="font-serif-ventanet" style="font-size:1.4rem; color:#171717; margin-bottom:8px;">Eliminar Proveedor</h3>
-            <p style="color:#5F6673; margin-bottom:4px;">¿Estás seguro de eliminar a:</p>
-            <p id="delete_nombre" style="color:#171717; font-weight:700; font-size:1rem;"></p>
+
+            <h3 style="margin:0 0 10px;font-size:21px;font-weight:700">
+                Eliminar Proveedor
+            </h3>
+
+            <p style="margin:0;color:#5F6673">
+                ¿Estás seguro de que deseas eliminar a:
+            </p>
+
+            <p id="elimNombre" style="margin:8px 0 0;font-weight:700"></p>
+
         </div>
 
-        <div style="background:#F8F8F8; border-top:1px solid #E5E7EB; padding:18px 24px; display:flex; justify-content:center; gap:10px;">
-            <button type="button" onclick="closeModal('modalEliminar')"
-                style="padding:9px 20px; border-radius:9px; border:1px solid #E5E7EB; background:#fff; color:#5F6673; font-weight:600; cursor:pointer;">
+        <div class="modal-footer">
+            <button type="button" class="btn-cancelar"
+                    onclick="cerrarModal('modalEliminar')">
                 Cancelar
             </button>
-            <a id="delete_link" href="#" class="btn-peligro" style="padding:9px 24px; text-decoration:none;">
+
+            <button type="button" class="btn-peligro"
+                    onclick="confirmarEliminar()">
                 Sí, eliminar
-            </a>
+            </button>
         </div>
+
     </div>
 </div>
 
 
 <script>
-    function openModal(id)  { document.getElementById(id).classList.remove('hidden'); }
-    function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function abrirModal(id){
+    document.getElementById(id)?.classList.remove('oculto');
+}
 
-    function openEditModal(proveedor) {
-        document.getElementById('edit_id_proveedor').value       = proveedor.id_proveedor;
-        document.getElementById('edit_nombre').value             = proveedor.nombre             ?? '';
-        document.getElementById('edit_telefono').value           = proveedor.telefono           ?? '';
-        document.getElementById('edit_correo').value             = proveedor.correo             ?? '';
-        document.getElementById('edit_correo_hidden').value      = proveedor.correo             ?? '';
-        document.getElementById('edit_frecuencia_entrega').value = proveedor.frecuencia_entrega ?? '';
-        openModal('modalEditar');
-    }
+function cerrarModal(id){
+    document.getElementById(id)?.classList.add('oculto');
+}
 
-    function openDeleteModal(id, nombre) {
-        document.getElementById('delete_nombre').textContent = nombre;
-        document.getElementById('delete_link').href = '../../controllers/ProveedorController.php?accion=eliminar&id=' + id;
-        openModal('modalEliminar');
+function abrirModalEditar(p){
+    document.getElementById('edit_id_proveedor').value=p.id_proveedor||'';
+    document.getElementById('edit_nombre').value=p.nombre||'';
+    document.getElementById('edit_telefono').value=p.telefono||'';
+    document.getElementById('edit_correo').value=p.correo||'';
+    document.getElementById('edit_correo_hidden').value=p.correo||'';
+    document.getElementById('edit_frecuencia_entrega').value=p.frecuencia_entrega||'';
+    abrirModal('modalEditar');
+}
+
+let proveedorEliminar=null;
+
+function abrirModalEliminar(id,nombre){
+    proveedorEliminar=id;
+    document.getElementById('elimNombre').textContent=nombre;
+    abrirModal('modalEliminar');
+}
+
+function confirmarEliminar(){
+    if(!proveedorEliminar)return;
+
+    window.location.href=
+        '../../controllers/ProveedorController.php?accion=eliminar&id='+
+        encodeURIComponent(proveedorEliminar);
+}
+
+function cambiarEstadoProveedor(id,estado){
+    if(!id)return;
+
+    window.location.href=
+        '../../controllers/ProveedorController.php?accion=toggleEstado&id='+
+        encodeURIComponent(id)+'&estado='+encodeURIComponent(estado);
+}
+
+document.querySelectorAll('.modal-fondo').forEach(modal=>{
+    modal.addEventListener('click',e=>{
+        if(e.target===modal)modal.classList.add('oculto');
+    });
+});
+
+document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){
+        document.querySelectorAll('.modal-fondo')
+            .forEach(m=>m.classList.add('oculto'));
     }
+});
 </script>
 
 <?php require_once __DIR__ . '/../layouts/footer.php'; ?>
