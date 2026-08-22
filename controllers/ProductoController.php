@@ -1,164 +1,1083 @@
 <?php
-/**
- * Controlador de Productos (ProductoController)
- * Maneja todas las operaciones CRUD de productos del sistema.
- * Permite crear, editar y eliminar productos con sus respectivas validaciones.
- * Requiere que el usuario esté autenticado para acceder a cualquier acción.
- */
+
+
+// ============================================================
+// SESIÓN
+// ============================================================
+
 session_start();
 
-// Verificamos que el usuario esté logueado; si no, redirigimos al login
-if (!isset($_SESSION['usuario'])) {
+// ============================================================
+// VERIFICAR SESIÓN
+// ============================================================
+
+if (!isset($_SESSION["usuario"])) {
     header("Location: ../views/usuarios/login.php");
     exit;
 }
 
-// Incluimos la clase de conexión y el modelo de producto
+// ============================================================
+// CONEXIÓN Y MODELO
+// ============================================================
+
 require_once __DIR__ . '/../config/databse.php';
 require_once __DIR__ . '/../models/producto.php';
 
-// Conectamos a la base de datos e instanciamos el modelo
+// ============================================================
+// CONECTAR BASE DE DATOS
+// ============================================================
+
 $database = new Database();
 $db = $database->conectar();
+
 $productoModel = new Producto($db);
 
-// Obtenemos la acción que viene por el parámetro GET
+// ============================================================
+// OBTENER ACCIÓN
+// ============================================================
+
 $accion = $_GET['accion'] ?? '';
 
-switch ($accion) {
 
-    // -----------------------------------------------
-    // CREAR producto nuevo
-    // -----------------------------------------------
-    case 'crear':
-        $nombre       = trim($_POST['nombre']         ?? '');
-        $stock        = intval($_POST['stock']         ?? 0);
-        $precio       = trim($_POST['precio']         ?? '');
-        $id_categoria = intval($_POST['id_categoria'] ?? 0);
+// ============================================================
+// FUNCIÓN PARA MOSTRAR ALERTA Y REGRESAR
+// ============================================================
 
-        if (empty($nombre) || empty($precio)) {
-            $_SESSION['alert'] = ['icon'=>'warning','title'=>'Campos incompletos','text'=>'El nombre y el precio son obligatorios.'];
-            header("Location: ../views/productos/index.php"); exit;
+function regresarConAlerta($icon, $title, $text)
+{
+    $_SESSION['alert'] = [
+        'icon'  => $icon,
+        'title' => $title,
+        'text'  => $text
+    ];
+
+    header("Location: ../views/productos/index.php");
+    exit;
+}
+
+
+// ============================================================
+// FUNCIÓN PARA GUARDAR IMAGEN
+// ============================================================
+
+function guardarImagen($archivo)
+{
+    // --------------------------------------------------------
+    // NO SE RECIBIÓ ARCHIVO
+    // --------------------------------------------------------
+
+    if (
+        !isset($archivo) ||
+        !isset($archivo['name']) ||
+        $archivo['error'] === UPLOAD_ERR_NO_FILE
+    ) {
+        return null;
+    }
+
+    // --------------------------------------------------------
+    // ERROR DE SUBIDA
+    // --------------------------------------------------------
+
+    if ($archivo['error'] !== UPLOAD_ERR_OK) {
+        return false;
+    }
+
+    // --------------------------------------------------------
+    // VALIDAR TAMAÑO
+    // MÁXIMO 2 MB
+    // --------------------------------------------------------
+
+    if ($archivo['size'] > 2 * 1024 * 1024) {
+        return false;
+    }
+
+    // --------------------------------------------------------
+    // VALIDAR MIME REAL
+    // --------------------------------------------------------
+
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+
+    if (!$finfo) {
+        return false;
+    }
+
+    $mime = finfo_file(
+        $finfo,
+        $archivo['tmp_name']
+    );
+
+    finfo_close($finfo);
+
+    $tiposPermitidos = [
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/gif'  => 'gif',
+        'image/webp' => 'webp'
+    ];
+
+    if (!isset($tiposPermitidos[$mime])) {
+        return false;
+    }
+
+    // --------------------------------------------------------
+    // DIRECTORIO DE IMÁGENES
+    // --------------------------------------------------------
+
+    $directorio = __DIR__ . '/../uploads/productos/';
+
+    if (!is_dir($directorio)) {
+
+        if (!mkdir($directorio, 0755, true)) {
+            return false;
         }
-        if ($productoModel->existeNombre($nombre)) {
-            $_SESSION['alert'] = ['icon'=>'warning','title'=>'Nombre duplicado','text'=>'Ya existe un producto con ese nombre.'];
-            header("Location: ../views/productos/index.php"); exit;
+    }
+
+    // --------------------------------------------------------
+    // GENERAR NOMBRE ÚNICO
+    // --------------------------------------------------------
+
+    $extension = $tiposPermitidos[$mime];
+
+    $nombreArchivo =
+        'producto_' .
+        date('YmdHis') .
+        '_' .
+        bin2hex(random_bytes(5)) .
+        '.' .
+        $extension;
+
+    $rutaCompleta =
+        $directorio . $nombreArchivo;
+
+    // --------------------------------------------------------
+    // MOVER ARCHIVO
+    // --------------------------------------------------------
+
+    if (
+        !move_uploaded_file(
+            $archivo['tmp_name'],
+            $rutaCompleta
+        )
+    ) {
+        return false;
+    }
+
+    // --------------------------------------------------------
+    // RUTA QUE SE GUARDA EN BD
+    // --------------------------------------------------------
+
+    return 'uploads/productos/' . $nombreArchivo;
+}
+
+
+// ============================================================
+// CREAR PRODUCTO
+// ============================================================
+
+if ($accion === 'crear') {
+
+    // --------------------------------------------------------
+    // SOLO POST
+    // --------------------------------------------------------
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+
+        regresarConAlerta(
+            'error',
+            'Solicitud inválida',
+            'La operación solicitada no es válida.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // DATOS
+    // --------------------------------------------------------
+
+    $nombre = trim(
+        $_POST['nombre'] ?? ''
+    );
+
+    $descripcion = trim(
+        $_POST['descripcion'] ?? ''
+    );
+
+    $id_categoria = !empty($_POST['id_categoria'])
+        ? (int) $_POST['id_categoria']
+        : null;
+
+    // --------------------------------------------------------
+    // VALIDAR NOMBRE
+    // --------------------------------------------------------
+
+    if ($nombre === '') {
+
+        regresarConAlerta(
+            'warning',
+            'Falta información',
+            'Debes ingresar el nombre del producto.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // VALIDAR CATEGORÍA
+    // --------------------------------------------------------
+
+    if ($id_categoria === null) {
+
+        regresarConAlerta(
+            'warning',
+            'Falta información',
+            'Debes seleccionar una categoría.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // VERIFICAR NOMBRE DUPLICADO
+    // --------------------------------------------------------
+
+    if ($productoModel->existeNombre($nombre)) {
+
+        regresarConAlerta(
+            'warning',
+            'Producto duplicado',
+            'Ya existe un producto registrado con ese nombre.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // GUARDAR IMAGEN
+    // --------------------------------------------------------
+
+    $imagen = null;
+
+    if (
+        isset($_FILES['imagen']) &&
+        $_FILES['imagen']['error'] !== UPLOAD_ERR_NO_FILE
+    ) {
+
+        $imagen = guardarImagen(
+            $_FILES['imagen']
+        );
+
+        if ($imagen === false) {
+
+            regresarConAlerta(
+                'error',
+                'Imagen inválida',
+                'La imagen no es válida, supera los 2 MB o no se pudo guardar.'
+            );
         }
+    }
 
-        // Manejo de imagen
-        $imagen = null;
-        if (!empty($_FILES['imagen']['name'])) {
-            $ext = strtolower(pathinfo($_FILES['imagen']['name'], PATHINFO_EXTENSION));
-            $permitidos = ['jpg','jpeg','png','gif','webp'];
-            if (!in_array($ext, $permitidos)) {
-                $_SESSION['alert'] = ['icon'=>'warning','title'=>'Formato inválido','text'=>'Solo se permiten imágenes JPG, PNG, GIF o WEBP.'];
-                header("Location: ../views/productos/index.php"); exit;
-            }
-            if ($_FILES['imagen']['size'] > 2 * 1024 * 1024) {
-                $_SESSION['alert'] = ['icon'=>'warning','title'=>'Imagen muy grande','text'=>'La imagen no puede superar 2MB.'];
-                header("Location: ../views/productos/index.php"); exit;
-            }
-            $carpeta = __DIR__ . '/../img/productos/';
-            if (!is_dir($carpeta)) mkdir($carpeta, 0755, true);
-            $nombreArchivo = 'prod_' . time() . '_' . rand(100,999) . '.' . $ext;
-            if (move_uploaded_file($_FILES['imagen']['tmp_name'], $carpeta . $nombreArchivo)) {
-                $imagen = 'img/productos/' . $nombreArchivo;
-            }
+    // --------------------------------------------------------
+    // DATOS PARA EL MODELO
+    // --------------------------------------------------------
+
+    $datos = [
+        'nombre'       => $nombre,
+        'descripcion'  => $descripcion,
+        'id_categoria' => $id_categoria,
+        'imagen'       => $imagen
+    ];
+
+    // --------------------------------------------------------
+    // REGISTRAR
+    // --------------------------------------------------------
+
+    $resultado = $productoModel->registrar(
+        $datos
+    );
+
+    // --------------------------------------------------------
+    // RESULTADO
+    // --------------------------------------------------------
+
+    if (is_int($resultado) && $resultado > 0) {
+
+        regresarConAlerta(
+            'success',
+            'Producto registrado',
+            'El producto se registró correctamente.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // ERROR
+    // --------------------------------------------------------
+
+    regresarConAlerta(
+        'error',
+        'No se pudo registrar',
+        is_string($resultado)
+            ? $resultado
+            : 'No fue posible registrar el producto.'
+    );
+}
+
+
+// ============================================================
+// EDITAR PRODUCTO
+// ============================================================
+
+if ($accion === 'editar') {
+
+    // --------------------------------------------------------
+    // SOLO POST
+    // --------------------------------------------------------
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+
+        regresarConAlerta(
+            'error',
+            'Solicitud inválida',
+            'La operación solicitada no es válida.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // ID
+    // --------------------------------------------------------
+
+    $id_producto = isset($_POST['id_producto'])
+        ? (int) $_POST['id_producto']
+        : 0;
+
+    if ($id_producto <= 0) {
+
+        regresarConAlerta(
+            'error',
+            'Producto inválido',
+            'No se recibió un producto válido.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // VERIFICAR PRODUCTO
+    // --------------------------------------------------------
+
+    $producto = $productoModel->obtenerPorId(
+        $id_producto
+    );
+
+    if (!$producto) {
+
+        regresarConAlerta(
+            'error',
+            'Producto no encontrado',
+            'El producto que intentas editar no existe.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // DATOS
+    // --------------------------------------------------------
+
+    $nombre = trim(
+        $_POST['nombre'] ?? ''
+    );
+
+    $descripcion = trim(
+        $_POST['descripcion'] ?? ''
+    );
+
+    $id_categoria = !empty($_POST['id_categoria'])
+        ? (int) $_POST['id_categoria']
+        : null;
+
+    // --------------------------------------------------------
+    // VALIDAR NOMBRE
+    // --------------------------------------------------------
+
+    if ($nombre === '') {
+
+        regresarConAlerta(
+            'warning',
+            'Falta información',
+            'Debes ingresar el nombre del producto.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // VALIDAR CATEGORÍA
+    // --------------------------------------------------------
+
+    if ($id_categoria === null) {
+
+        regresarConAlerta(
+            'warning',
+            'Falta información',
+            'Debes seleccionar una categoría.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // VERIFICAR NOMBRE DUPLICADO
+    // EXCLUYENDO EL MISMO PRODUCTO
+    // --------------------------------------------------------
+
+    if (
+        $productoModel->existeNombre(
+            $nombre,
+            $id_producto
+        )
+    ) {
+
+        regresarConAlerta(
+            'warning',
+            'Producto duplicado',
+            'Ya existe otro producto con ese nombre.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // NUEVA IMAGEN
+    // --------------------------------------------------------
+
+    $imagen = null;
+
+    if (
+        isset($_FILES['imagen']) &&
+        $_FILES['imagen']['error'] !== UPLOAD_ERR_NO_FILE
+    ) {
+
+        $imagen = guardarImagen(
+            $_FILES['imagen']
+        );
+
+        if ($imagen === false) {
+
+            regresarConAlerta(
+                'error',
+                'Imagen inválida',
+                'La nueva imagen no es válida, supera los 2 MB o no se pudo guardar.'
+            );
         }
+    }
 
-        $resultado = $productoModel->registrar([
-            'nombre'      => $nombre,
-            'stock'       => $stock,
-            'precio'      => $precio,
-            'id_categoria'=> $id_categoria ?: null,
-            'imagen'      => $imagen,
-        ]);
+    // --------------------------------------------------------
+    // DATOS
+    // --------------------------------------------------------
 
-        $_SESSION['alert'] = $resultado === true
-            ? ['icon'=>'success','title'=>'¡Producto creado!','text'=>'El producto fue agregado correctamente.']
-            : ['icon'=>'error',  'title'=>'Error',            'text'=>$resultado];
-        header("Location: ../views/productos/index.php"); exit;
+    $datos = [
+        'nombre'       => $nombre,
+        'descripcion'  => $descripcion,
+        'id_categoria' => $id_categoria
+    ];
 
-    // -----------------------------------------------
-    // EDITAR producto existente
-    // -----------------------------------------------
-    case 'editar':
-        $id_producto  = intval($_POST['id_producto']  ?? 0);
-        $nombre       = trim($_POST['nombre']         ?? '');
-        $stock        = intval($_POST['stock']         ?? 0);
-        $precio       = trim($_POST['precio']         ?? '');
-        $id_categoria = intval($_POST['id_categoria'] ?? 0);
+    // --------------------------------------------------------
+    // SI HAY NUEVA IMAGEN
+    // --------------------------------------------------------
 
-        if (empty($nombre) || empty($precio) || $id_producto === 0) {
-            $_SESSION['alert'] = ['icon'=>'warning','title'=>'Campos incompletos','text'=>'El nombre y el precio son obligatorios.'];
-            header("Location: ../views/productos/index.php"); exit;
-        }
-        if ($productoModel->existeNombre($nombre, $id_producto)) {
-            $_SESSION['alert'] = ['icon'=>'warning','title'=>'Nombre duplicado','text'=>'Ya existe otro producto con ese nombre.'];
-            header("Location: ../views/productos/index.php"); exit;
-        }
+    if ($imagen !== null) {
+        $datos['imagen'] = $imagen;
+    }
 
-        // Manejo de imagen al editar
-        $imagen = null;
-        if (!empty($_FILES['imagen']['name'])) {
-            $ext = strtolower(pathinfo($_FILES['imagen']['name'], PATHINFO_EXTENSION));
-            $permitidos = ['jpg','jpeg','png','gif','webp'];
-            if (in_array($ext, $permitidos) && $_FILES['imagen']['size'] <= 2 * 1024 * 1024) {
-                $carpeta = __DIR__ . '/../img/productos/';
-                if (!is_dir($carpeta)) mkdir($carpeta, 0755, true);
-                $nombreArchivo = 'prod_' . time() . '_' . rand(100,999) . '.' . $ext;
-                if (move_uploaded_file($_FILES['imagen']['tmp_name'], $carpeta . $nombreArchivo)) {
-                    $imagen = 'img/productos/' . $nombreArchivo;
-                    // Eliminar imagen anterior si existe
-                    $imagenAnterior = trim($_POST['imagen_actual'] ?? '');
-                    if ($imagenAnterior && file_exists(__DIR__ . '/../' . $imagenAnterior)) {
-                        @unlink(__DIR__ . '/../' . $imagenAnterior);
-                    }
+    // --------------------------------------------------------
+    // EDITAR
+    // --------------------------------------------------------
+
+    $resultado = $productoModel->editar(
+        $id_producto,
+        $datos
+    );
+
+    // --------------------------------------------------------
+    // SI SE EDITÓ CORRECTAMENTE
+    // --------------------------------------------------------
+
+    if ($resultado === true) {
+
+        // ----------------------------------------------------
+        // ELIMINAR IMAGEN ANTERIOR SI SE CAMBIÓ
+        // ----------------------------------------------------
+
+        if ($imagen !== null) {
+
+            $imagenAnterior =
+                $producto['imagen'] ?? '';
+
+            if (
+                !empty($imagenAnterior) &&
+                strpos(
+                    $imagenAnterior,
+                    'uploads/productos/'
+                ) === 0
+            ) {
+
+                $rutaAnterior =
+                    __DIR__ .
+                    '/../' .
+                    $imagenAnterior;
+
+                if (
+                    is_file($rutaAnterior) &&
+                    $rutaAnterior !==
+                    __DIR__ . '/../' . $imagen
+                ) {
+
+                    @unlink($rutaAnterior);
                 }
             }
         }
 
-        $resultado = $productoModel->editar($id_producto, [
-            'nombre'      => $nombre,
-            'stock'       => $stock,
-            'precio'      => $precio,
-            'id_categoria'=> $id_categoria ?: null,
-            'imagen'      => $imagen,
-        ]);
+        regresarConAlerta(
+            'success',
+            'Producto actualizado',
+            'Los cambios del producto se guardaron correctamente.'
+        );
+    }
 
-        $_SESSION['alert'] = $resultado === true
-            ? ['icon'=>'success','title'=>'¡Producto actualizado!','text'=>'Los datos fueron actualizados correctamente.']
-            : ['icon'=>'error',  'title'=>'Error',                 'text'=>$resultado];
-        header("Location: ../views/productos/index.php"); exit;
+    // --------------------------------------------------------
+    // ERROR
+    // --------------------------------------------------------
 
-    // -----------------------------------------------
-    // ELIMINAR producto
-    // -----------------------------------------------
-    case 'eliminar':
-        // Obtenemos el ID del producto a eliminar desde el parámetro GET
-        $id_producto = intval($_GET['id'] ?? 0);
+    regresarConAlerta(
+        'error',
+        'No se pudo actualizar',
+        is_string($resultado)
+            ? $resultado
+            : 'No fue posible actualizar el producto.'
+    );
+}
 
-        // Validamos que el ID sea válido (mayor que 0)
-        if ($id_producto === 0) {
-            $_SESSION['alert'] = ['icon' => 'error', 'title' => 'Error', 'text' => 'Producto no válido.'];
-            header("Location: ../views/productos/index.php");
-            exit;
+
+// ============================================================
+// ACTIVAR PRODUCTO
+// ============================================================
+
+if ($accion === 'activar') {
+
+    // --------------------------------------------------------
+    // SOLO POST
+    // --------------------------------------------------------
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+
+        regresarConAlerta(
+            'error',
+            'Solicitud inválida',
+            'La operación solicitada no es válida.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // ID
+    // --------------------------------------------------------
+
+    $id_producto = isset($_POST['id_producto'])
+        ? (int) $_POST['id_producto']
+        : 0;
+
+    if ($id_producto <= 0) {
+
+        regresarConAlerta(
+            'error',
+            'Producto inválido',
+            'No se recibió un producto válido.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // VERIFICAR PRODUCTO
+    // --------------------------------------------------------
+
+    $producto = $productoModel->obtenerPorId(
+        $id_producto
+    );
+
+    if (!$producto) {
+
+        regresarConAlerta(
+            'error',
+            'Producto no encontrado',
+            'El producto que intentas activar no existe.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // CAMBIAR ESTADO
+    // --------------------------------------------------------
+
+    $resultado = $productoModel->cambiarEstado(
+        $id_producto,
+        1
+    );
+
+    // --------------------------------------------------------
+    // RESULTADO
+    // --------------------------------------------------------
+
+    if ($resultado === true) {
+
+        regresarConAlerta(
+            'success',
+            'Producto activado',
+            'El producto ahora está disponible en el catálogo.'
+        );
+    }
+
+    regresarConAlerta(
+        'error',
+        'No se pudo activar',
+        is_string($resultado)
+            ? $resultado
+            : 'No fue posible activar el producto.'
+    );
+}
+
+
+// ============================================================
+// DESACTIVAR PRODUCTO
+// ============================================================
+
+if ($accion === 'desactivar') {
+
+    // --------------------------------------------------------
+    // SOLO POST
+    // --------------------------------------------------------
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+
+        regresarConAlerta(
+            'error',
+            'Solicitud inválida',
+            'La operación solicitada no es válida.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // ID
+    // --------------------------------------------------------
+
+    $id_producto = isset($_POST['id_producto'])
+        ? (int) $_POST['id_producto']
+        : 0;
+
+    if ($id_producto <= 0) {
+
+        regresarConAlerta(
+            'error',
+            'Producto inválido',
+            'No se recibió un producto válido.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // VERIFICAR PRODUCTO
+    // --------------------------------------------------------
+
+    $producto = $productoModel->obtenerPorId(
+        $id_producto
+    );
+
+    if (!$producto) {
+
+        regresarConAlerta(
+            'error',
+            'Producto no encontrado',
+            'El producto que intentas desactivar no existe.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // CAMBIAR ESTADO
+    // --------------------------------------------------------
+
+    $resultado = $productoModel->cambiarEstado(
+        $id_producto,
+        0
+    );
+
+    // --------------------------------------------------------
+    // RESULTADO
+    // --------------------------------------------------------
+
+    if ($resultado === true) {
+
+        regresarConAlerta(
+            'success',
+            'Producto desactivado',
+            'El producto ahora está marcado como inactivo.'
+        );
+    }
+
+    regresarConAlerta(
+        'error',
+        'No se pudo desactivar',
+        is_string($resultado)
+            ? $resultado
+            : 'No fue posible desactivar el producto.'
+    );
+}
+
+
+// ============================================================
+// ELIMINAR PRODUCTO
+// ============================================================
+
+if ($accion === 'eliminar') {
+
+    // --------------------------------------------------------
+    // OBTENER ID
+    // --------------------------------------------------------
+
+    $id_producto = isset($_GET['id'])
+        ? (int) $_GET['id']
+        : 0;
+
+    if ($id_producto <= 0) {
+
+        regresarConAlerta(
+            'error',
+            'Producto inválido',
+            'No se recibió un producto válido.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // OBTENER PRODUCTO
+    // --------------------------------------------------------
+
+    $producto = $productoModel->obtenerPorId(
+        $id_producto
+    );
+
+    if (!$producto) {
+
+        regresarConAlerta(
+            'error',
+            'Producto no encontrado',
+            'El producto que intentas eliminar no existe.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // ELIMINAR
+    // --------------------------------------------------------
+
+    $resultado = $productoModel->eliminar(
+        $id_producto
+    );
+
+    // --------------------------------------------------------
+    // ELIMINACIÓN CORRECTA
+    // --------------------------------------------------------
+
+    if ($resultado === true) {
+
+        // ----------------------------------------------------
+        // ELIMINAR IMAGEN DEL SERVIDOR
+        // ----------------------------------------------------
+
+        if (!empty($producto['imagen'])) {
+
+            if (
+                strpos(
+                    $producto['imagen'],
+                    'uploads/productos/'
+                ) === 0
+            ) {
+
+                $rutaImagen =
+                    __DIR__ .
+                    '/../' .
+                    $producto['imagen'];
+
+                if (is_file($rutaImagen)) {
+                    @unlink($rutaImagen);
+                }
+            }
         }
 
-        // Llamamos al modelo para eliminar el producto
-        $resultado = $productoModel->eliminar($id_producto);
+        regresarConAlerta(
+            'success',
+            'Producto eliminado',
+            'El producto fue eliminado correctamente.'
+        );
+    }
 
-        // Guardamos el mensaje de resultado en sesión
-        $_SESSION['alert'] = $resultado === true
-            ? ['icon' => 'success', 'title' => '¡Producto eliminado!', 'text' => 'El producto fue eliminado correctamente.']
-            : ['icon' => 'error',   'title' => 'Error',                'text' => $resultado];
+    // --------------------------------------------------------
+    // NO SE PUDO ELIMINAR
+    // --------------------------------------------------------
 
-        header("Location: ../views/productos/index.php");
-        exit;
-
-    // Acción no reconocida: redirigir a la lista de productos
-    default:
-        header("Location: ../views/productos/index.php");
-        exit;
+    regresarConAlerta(
+        'error',
+        'No se puede eliminar',
+        'Este producto tiene información relacionada, como precios o registros de compras. Puedes desactivarlo en lugar de eliminarlo.'
+    );
 }
+
+
+// ============================================================
+// CREAR CATEGORÍA
+// ============================================================
+
+if ($accion === 'crearCategoria') {
+
+    // --------------------------------------------------------
+    // SOLO POST
+    // --------------------------------------------------------
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+
+        regresarConAlerta(
+            'error',
+            'Solicitud inválida',
+            'La operación solicitada no es válida.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // DATOS
+    // --------------------------------------------------------
+
+    $tipo = trim(
+        $_POST['tipo'] ?? ''
+    );
+
+    // --------------------------------------------------------
+    // VALIDAR
+    // --------------------------------------------------------
+
+    if ($tipo === '') {
+
+        regresarConAlerta(
+            'warning',
+            'Falta información',
+            'Debes ingresar el nombre de la categoría.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // DUPLICADO
+    // --------------------------------------------------------
+
+    if ($productoModel->existeCategoriaTipo($tipo)) {
+
+        regresarConAlerta(
+            'warning',
+            'Categoría duplicada',
+            'Ya existe una categoría con ese nombre.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // DATOS
+    // --------------------------------------------------------
+
+    $datos = [
+        'tipo' => $tipo
+    ];
+
+    // --------------------------------------------------------
+    // REGISTRAR
+    // --------------------------------------------------------
+
+    $resultado =
+        $productoModel->registrarCategoria(
+            $datos
+        );
+
+    // --------------------------------------------------------
+    // RESULTADO
+    // --------------------------------------------------------
+
+    if ($resultado === true) {
+
+        regresarConAlerta(
+            'success',
+            'Categoría registrada',
+            'La categoría se registró correctamente.'
+        );
+    }
+
+    regresarConAlerta(
+        'error',
+        'No se pudo registrar',
+        is_string($resultado)
+            ? $resultado
+            : 'No fue posible registrar la categoría.'
+    );
+}
+
+
+// ============================================================
+// EDITAR CATEGORÍA
+// ============================================================
+
+if ($accion === 'editarCategoria') {
+
+    // --------------------------------------------------------
+    // SOLO POST
+    // --------------------------------------------------------
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+
+        regresarConAlerta(
+            'error',
+            'Solicitud inválida',
+            'La operación solicitada no es válida.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // ID
+    // --------------------------------------------------------
+
+    $id_categoria = isset($_POST['id_categoria'])
+        ? (int) $_POST['id_categoria']
+        : 0;
+
+    if ($id_categoria <= 0) {
+
+        regresarConAlerta(
+            'error',
+            'Categoría inválida',
+            'No se recibió una categoría válida.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // DATOS
+    // --------------------------------------------------------
+
+    $tipo = trim(
+        $_POST['tipo'] ?? ''
+    );
+
+    // --------------------------------------------------------
+    // VALIDAR
+    // --------------------------------------------------------
+
+    if ($tipo === '') {
+
+        regresarConAlerta(
+            'warning',
+            'Falta información',
+            'Debes ingresar el nombre de la categoría.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // DUPLICADO
+    // --------------------------------------------------------
+
+    if (
+        $productoModel->existeCategoriaTipo(
+            $tipo,
+            $id_categoria
+        )
+    ) {
+
+        regresarConAlerta(
+            'warning',
+            'Categoría duplicada',
+            'Ya existe otra categoría con ese nombre.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // DATOS
+    // --------------------------------------------------------
+
+    $datos = [
+        'tipo' => $tipo
+    ];
+
+    // --------------------------------------------------------
+    // EDITAR
+    // --------------------------------------------------------
+
+    $resultado =
+        $productoModel->editarCategoria(
+            $id_categoria,
+            $datos
+        );
+
+    // --------------------------------------------------------
+    // RESULTADO
+    // --------------------------------------------------------
+
+    if ($resultado === true) {
+
+        regresarConAlerta(
+            'success',
+            'Categoría actualizada',
+            'La categoría se actualizó correctamente.'
+        );
+    }
+
+    regresarConAlerta(
+        'error',
+        'No se pudo actualizar',
+        is_string($resultado)
+            ? $resultado
+            : 'No fue posible actualizar la categoría.'
+    );
+}
+
+
+// ============================================================
+// ELIMINAR CATEGORÍA
+// ============================================================
+
+if ($accion === 'eliminarCategoria') {
+
+    // --------------------------------------------------------
+    // ID
+    // --------------------------------------------------------
+
+    $id_categoria = isset($_GET['id'])
+        ? (int) $_GET['id']
+        : 0;
+
+    if ($id_categoria <= 0) {
+
+        regresarConAlerta(
+            'error',
+            'Categoría inválida',
+            'No se recibió una categoría válida.'
+        );
+    }
+
+    // --------------------------------------------------------
+    // ELIMINAR
+    // --------------------------------------------------------
+
+    $resultado =
+        $productoModel->eliminarCategoria(
+            $id_categoria
+        );
+
+    // --------------------------------------------------------
+    // RESULTADO
+    // --------------------------------------------------------
+
+    if ($resultado === true) {
+
+        regresarConAlerta(
+            'success',
+            'Categoría eliminada',
+            'La categoría fue eliminada correctamente.'
+        );
+    }
+
+    regresarConAlerta(
+        'error',
+        'No se puede eliminar',
+        'Esta categoría tiene productos asociados. Debes eliminar o reasignar esos productos antes de eliminar la categoría.'
+    );
+}
+
+
+// ============================================================
+// ACCIÓN NO RECONOCIDA
+// ============================================================
+
+regresarConAlerta(
+    'error',
+    'Acción no válida',
+    'La acción solicitada no existe.'
+);
+
 ?>

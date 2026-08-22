@@ -1,188 +1,702 @@
 <?php
-/**
- * Modelo Producto
- * BD real: producto (id_producto, nombre, descripcion, id_categoria, imagen, estado)
- *          SIN columnas precio ni stock — esas están en productos_precio e inventario
- * categoria: id_categoria, tipo, estado
- */
-class Producto {
 
+
+class Producto
+{
     private $conn;
 
-    public function __construct($db) {
+    public function __construct($db)
+    {
         $this->conn = $db;
     }
 
-    /**
-     * Lista todos los productos con categoría, precio de venta (primer precio activo)
-     * y stock actual (inventario).
-     */
-    public function obtenerTodos() {
-        $sql = "SELECT
+    // =========================================================
+    // OBTENER TODOS LOS PRODUCTOS
+    // =========================================================
+
+    public function obtenerTodos()
+    {
+        try {
+
+            $sql = "
+                SELECT
                     p.id_producto,
                     p.nombre,
                     p.descripcion,
+                    p.id_categoria,
                     p.imagen,
                     p.estado,
-                    p.id_categoria,
-                    c.tipo                              AS categoria,
-                    COALESCE(i.stock_actual, 0)         AS stock_actual,
-                    COALESCE(i.stock_minimo, 0)         AS stock_minimo,
-                    -- Primer precio de venta activo
-                    (SELECT pp.precio_venta
-                     FROM productos_precio pp
-                     WHERE pp.id_producto = p.id_producto AND pp.estado = 'activo'
-                     LIMIT 1)                           AS precio_venta,
-                    -- Primer precio de compra activo
-                    (SELECT pp.precio_compra
-                     FROM productos_precio pp
-                     WHERE pp.id_producto = p.id_producto AND pp.estado = 'activo'
-                     LIMIT 1)                           AS precio_compra
+
+                    c.tipo AS categoria,
+
+                    COALESCE(i.stock_actual, 0) AS stock_actual,
+                    COALESCE(i.stock_minimo, 0) AS stock_minimo,
+
+                    COALESCE(
+                        (
+                            SELECT pp.precio_venta
+                            FROM producto_precios pp
+                            WHERE pp.id_producto = p.id_producto
+                              AND pp.estado = 1
+                            ORDER BY pp.id_precio ASC
+                            LIMIT 1
+                        ),
+                        0
+                    ) AS precio_venta,
+
+                    COALESCE(
+                        (
+                            SELECT pp.precio_compra
+                            FROM producto_precios pp
+                            WHERE pp.id_producto = p.id_producto
+                              AND pp.estado = 1
+                            ORDER BY pp.id_precio ASC
+                            LIMIT 1
+                        ),
+                        0
+                    ) AS precio_compra
+
                 FROM producto p
-                LEFT JOIN categoria  c ON p.id_categoria = c.id_categoria
-                LEFT JOIN inventario i ON p.id_producto  = i.id_producto
-                ORDER BY p.nombre ASC";
-        $stmt = $this->conn->prepare($sql);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
 
-    // ── Obtener producto por ID ─────────────────────────────
-    public function obtenerPorId($id_producto) {
-        $sql = "SELECT p.*, c.tipo AS categoria
-                FROM producto p
-                LEFT JOIN categoria c ON p.id_categoria = c.id_categoria
-                WHERE p.id_producto = :id LIMIT 1";
-        $stmt = $this->conn->prepare($sql);
-        $stmt->bindParam(':id', $id_producto);
-        $stmt->execute();
-        return $stmt->fetch(PDO::FETCH_ASSOC);
-    }
+                LEFT JOIN categoria c
+                    ON p.id_categoria = c.id_categoria
 
-    // ── Precios de un producto (productos_precio) ───────────
-    public function obtenerPrecios($id_producto) {
-        $sql = "SELECT
-                    pp.*,
-                    uc.nombre AS unidad_compra_nombre,
-                    uv.nombre AS unidad_venta_nombre,
-                    pe.nombre AS proveedor_nombre
-                FROM productos_precio pp
-                INNER JOIN unidades_medida uc ON pp.id_unidad_compra = uc.id_unidad
-                INNER JOIN unidades_medida uv ON pp.id_unidad_venta  = uv.id_unidad
-                INNER JOIN proveedor       pr ON pp.id_proveedor     = pr.id_proveedor
-                INNER JOIN persona         pe ON pr.id_persona       = pe.id_persona
-                WHERE pp.id_producto = :id
-                ORDER BY pp.id_precio ASC";
-        $stmt = $this->conn->prepare($sql);
-        $stmt->bindParam(':id', $id_producto);
-        $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
+                LEFT JOIN inventario i
+                    ON p.id_producto = i.id_producto
 
-    // ── Categorías para el select ───────────────────────────
-    public function obtenerCategorias() {
-        $stmt = $this->conn->prepare(
-            "SELECT id_categoria, tipo FROM categoria WHERE estado = 'activo' ORDER BY tipo ASC"
-        );
-        $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
+                ORDER BY p.id_producto DESC
+            ";
 
-    // ── Registrar producto ──────────────────────────────────
-    public function registrar($datos) {
-        try {
-            $sql = "INSERT INTO producto (nombre, descripcion, id_categoria, imagen, estado)
-                    VALUES (:nombre, :descripcion, :id_categoria, :imagen, 'activo')";
             $stmt = $this->conn->prepare($sql);
-            $stmt->bindParam(':nombre',       $datos['nombre']);
-            $stmt->bindParam(':descripcion',  $datos['descripcion']);
-            $stmt->bindParam(':id_categoria', $datos['id_categoria']);
-            $stmt->bindParam(':imagen',       $datos['imagen']);
             $stmt->execute();
-            return $this->conn->lastInsertId();
-        } catch (Exception $e) {
-            return "Error al registrar: " . $e->getMessage();
+
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        } catch (PDOException $e) {
+
+            error_log(
+                "Error obtenerTodos productos: " .
+                $e->getMessage()
+            );
+
+            return [];
         }
     }
 
-    // ── Editar producto ─────────────────────────────────────
-    public function editar($id_producto, $datos) {
+    // =========================================================
+    // OBTENER PRODUCTO POR ID
+    // =========================================================
+
+    public function obtenerPorId($id_producto)
+    {
         try {
-            if (!empty($datos['imagen'])) {
-                $sql = "UPDATE producto
-                        SET nombre = :nombre, descripcion = :descripcion,
-                            id_categoria = :id_categoria, imagen = :imagen
-                        WHERE id_producto = :id";
+
+            $sql = "
+                SELECT
+                    p.*,
+                    c.tipo AS categoria
+
+                FROM producto p
+
+                LEFT JOIN categoria c
+                    ON p.id_categoria = c.id_categoria
+
+                WHERE p.id_producto = :id
+
+                LIMIT 1
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+
+            $stmt->bindValue(
+                ':id',
+                (int)$id_producto,
+                PDO::PARAM_INT
+            );
+
+            $stmt->execute();
+
+            return $stmt->fetch(PDO::FETCH_ASSOC);
+
+        } catch (PDOException $e) {
+
+            error_log(
+                "Error obtenerPorId producto: " .
+                $e->getMessage()
+            );
+
+            return false;
+        }
+    }
+
+    // =========================================================
+    // OBTENER CATEGORÍAS
+    // =========================================================
+
+    public function obtenerCategorias()
+    {
+        try {
+
+            $sql = "
+                SELECT
+                    id_categoria,
+                    tipo
+                FROM categoria
+                ORDER BY tipo ASC
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute();
+
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        } catch (PDOException $e) {
+
+            error_log(
+                "Error obtenerCategorias: " .
+                $e->getMessage()
+            );
+
+            return [];
+        }
+    }
+
+    // =========================================================
+    // REGISTRAR CATEGORÍA
+    // =========================================================
+
+    public function registrarCategoria($datos)
+    {
+        try {
+
+            $tipo = trim($datos['tipo'] ?? '');
+
+            $sql = "
+                INSERT INTO categoria
+                (
+                    tipo
+                )
+                VALUES
+                (
+                    :tipo
+                )
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+
+            $stmt->bindValue(
+                ':tipo',
+                $tipo,
+                PDO::PARAM_STR
+            );
+
+            $stmt->execute();
+
+            return true;
+
+        } catch (PDOException $e) {
+
+            error_log(
+                "Error registrarCategoria: " .
+                $e->getMessage()
+            );
+
+            return "Error al registrar categoría: " .
+                $e->getMessage();
+        }
+    }
+
+    // =========================================================
+    // EDITAR CATEGORÍA
+    // =========================================================
+
+    public function editarCategoria($id_categoria, $datos)
+    {
+        try {
+
+            $tipo = trim($datos['tipo'] ?? '');
+
+            $sql = "
+                UPDATE categoria
+                SET
+                    tipo = :tipo
+                WHERE id_categoria = :id
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+
+            $stmt->bindValue(
+                ':tipo',
+                $tipo,
+                PDO::PARAM_STR
+            );
+
+            $stmt->bindValue(
+                ':id',
+                (int)$id_categoria,
+                PDO::PARAM_INT
+            );
+
+            $stmt->execute();
+
+            return true;
+
+        } catch (PDOException $e) {
+
+            error_log(
+                "Error editarCategoria: " .
+                $e->getMessage()
+            );
+
+            return "Error al editar categoría: " .
+                $e->getMessage();
+        }
+    }
+
+    // =========================================================
+    // ELIMINAR CATEGORÍA
+    // =========================================================
+
+    public function eliminarCategoria($id_categoria)
+    {
+        try {
+
+            $sql = "
+                DELETE FROM categoria
+                WHERE id_categoria = :id
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+
+            $stmt->bindValue(
+                ':id',
+                (int)$id_categoria,
+                PDO::PARAM_INT
+            );
+
+            $stmt->execute();
+
+            return true;
+
+        } catch (PDOException $e) {
+
+            error_log(
+                "Error eliminarCategoria: " .
+                $e->getMessage()
+            );
+
+            return "No se puede eliminar la categoría porque tiene productos asociados.";
+        }
+    }
+
+    // =========================================================
+    // VERIFICAR SI YA EXISTE UNA CATEGORÍA CON ESE NOMBRE
+    // =========================================================
+
+    public function existeCategoriaTipo($tipo, $excluir_id = null)
+    {
+        try {
+
+            if ($excluir_id !== null) {
+
+                $sql = "
+                    SELECT id_categoria
+                    FROM categoria
+                    WHERE tipo = :tipo
+                      AND id_categoria != :id
+                    LIMIT 1
+                ";
+
+                $stmt = $this->conn->prepare($sql);
+
+                $stmt->bindValue(
+                    ':tipo',
+                    trim($tipo),
+                    PDO::PARAM_STR
+                );
+
+                $stmt->bindValue(
+                    ':id',
+                    (int)$excluir_id,
+                    PDO::PARAM_INT
+                );
+
             } else {
-                $sql = "UPDATE producto
-                        SET nombre = :nombre, descripcion = :descripcion,
-                            id_categoria = :id_categoria
-                        WHERE id_producto = :id";
+
+                $sql = "
+                    SELECT id_categoria
+                    FROM categoria
+                    WHERE tipo = :tipo
+                    LIMIT 1
+                ";
+
+                $stmt = $this->conn->prepare($sql);
+
+                $stmt->bindValue(
+                    ':tipo',
+                    trim($tipo),
+                    PDO::PARAM_STR
+                );
             }
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindParam(':nombre',       $datos['nombre']);
-            $stmt->bindParam(':descripcion',  $datos['descripcion']);
-            $stmt->bindParam(':id_categoria', $datos['id_categoria']);
-            $stmt->bindParam(':id',           $id_producto);
-            if (!empty($datos['imagen'])) $stmt->bindParam(':imagen', $datos['imagen']);
+
             $stmt->execute();
-            return true;
-        } catch (Exception $e) {
-            return "Error al editar: " . $e->getMessage();
+
+            return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
+
+        } catch (PDOException $e) {
+
+            error_log(
+                "Error existeCategoriaTipo: " .
+                $e->getMessage()
+            );
+
+            return false;
         }
     }
 
-    // ── Cambiar estado del producto ─────────────────────────
-    public function cambiarEstado($id_producto, $estado) {
+    // =========================================================
+    // REGISTRAR PRODUCTO
+    // =========================================================
+
+    public function registrar($datos)
+    {
         try {
-            $this->conn->prepare(
-                "UPDATE producto SET estado = ? WHERE id_producto = ?"
-            )->execute([$estado, $id_producto]);
-            return true;
-        } catch (Exception $e) {
-            return $e->getMessage();
+
+            $sql = "
+                INSERT INTO producto
+                (
+                    nombre,
+                    descripcion,
+                    id_categoria,
+                    imagen,
+                    estado
+                )
+                VALUES
+                (
+                    :nombre,
+                    :descripcion,
+                    :id_categoria,
+                    :imagen,
+                    1
+                )
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+
+            $nombre = trim($datos['nombre'] ?? '');
+
+            $descripcion = !empty($datos['descripcion'])
+                ? trim($datos['descripcion'])
+                : null;
+
+            $id_categoria = !empty($datos['id_categoria'])
+                ? (int)$datos['id_categoria']
+                : null;
+
+            $imagen = !empty($datos['imagen'])
+                ? trim($datos['imagen'])
+                : null;
+
+            $stmt->bindValue(
+                ':nombre',
+                $nombre,
+                PDO::PARAM_STR
+            );
+
+            $stmt->bindValue(
+                ':descripcion',
+                $descripcion,
+                $descripcion === null
+                    ? PDO::PARAM_NULL
+                    : PDO::PARAM_STR
+            );
+
+            $stmt->bindValue(
+                ':id_categoria',
+                $id_categoria,
+                $id_categoria === null
+                    ? PDO::PARAM_NULL
+                    : PDO::PARAM_INT
+            );
+
+            $stmt->bindValue(
+                ':imagen',
+                $imagen,
+                $imagen === null
+                    ? PDO::PARAM_NULL
+                    : PDO::PARAM_STR
+            );
+
+            $stmt->execute();
+
+            return (int)$this->conn->lastInsertId();
+
+        } catch (PDOException $e) {
+
+            error_log(
+                "Error registrar producto: " .
+                $e->getMessage()
+            );
+
+            return "Error al registrar producto: " .
+                $e->getMessage();
         }
     }
 
-    // ── Verificar nombre duplicado ──────────────────────────
-    public function existeNombre($nombre, $excluir_id = null) {
-        if ($excluir_id) {
-            $sql  = "SELECT id_producto FROM producto WHERE nombre = :nombre AND id_producto != :id LIMIT 1";
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindParam(':nombre', $nombre);
-            $stmt->bindParam(':id',     $excluir_id);
-        } else {
-            $sql  = "SELECT id_producto FROM producto WHERE nombre = :nombre LIMIT 1";
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindParam(':nombre', $nombre);
-        }
-        $stmt->execute();
-        return $stmt->rowCount() > 0;
-    }
+    // =========================================================
+    // EDITAR PRODUCTO
+    // =========================================================
 
-    // ── Registrar precio en productos_precio ─────────────────
-    public function registrarPrecio($datos) {
+    public function editar($id_producto, $datos)
+    {
         try {
-            $sql = "INSERT INTO productos_precio
-                        (id_producto, id_proveedor, id_unidad_compra, precio_compra,
-                         unidades_por_presentacion, cantidad_venta, id_unidad_venta, precio_venta, estado)
-                    VALUES
-                        (:id_producto, :id_proveedor, :id_unidad_compra, :precio_compra,
-                         :unidades_por_presentacion, :cantidad_venta, :id_unidad_venta, :precio_venta, 'activo')";
+
+            $imagen = !empty($datos['imagen'])
+                ? trim($datos['imagen'])
+                : null;
+
+            if ($imagen !== null) {
+
+                $sql = "
+                    UPDATE producto
+                    SET
+                        nombre = :nombre,
+                        descripcion = :descripcion,
+                        id_categoria = :id_categoria,
+                        imagen = :imagen
+                    WHERE id_producto = :id
+                ";
+
+            } else {
+
+                $sql = "
+                    UPDATE producto
+                    SET
+                        nombre = :nombre,
+                        descripcion = :descripcion,
+                        id_categoria = :id_categoria
+                    WHERE id_producto = :id
+                ";
+            }
+
             $stmt = $this->conn->prepare($sql);
-            $stmt->execute([
-                ':id_producto'              => $datos['id_producto'],
-                ':id_proveedor'             => $datos['id_proveedor'],
-                ':id_unidad_compra'         => $datos['id_unidad_compra'],
-                ':precio_compra'            => $datos['precio_compra'],
-                ':unidades_por_presentacion'=> $datos['unidades_por_presentacion'],
-                ':cantidad_venta'           => $datos['cantidad_venta'],
-                ':id_unidad_venta'          => $datos['id_unidad_venta'],
-                ':precio_venta'             => $datos['precio_venta'],
-            ]);
+
+            $nombre = trim($datos['nombre'] ?? '');
+
+            $descripcion = !empty($datos['descripcion'])
+                ? trim($datos['descripcion'])
+                : null;
+
+            $id_categoria = !empty($datos['id_categoria'])
+                ? (int)$datos['id_categoria']
+                : null;
+
+            $stmt->bindValue(
+                ':nombre',
+                $nombre,
+                PDO::PARAM_STR
+            );
+
+            $stmt->bindValue(
+                ':descripcion',
+                $descripcion,
+                $descripcion === null
+                    ? PDO::PARAM_NULL
+                    : PDO::PARAM_STR
+            );
+
+            $stmt->bindValue(
+                ':id_categoria',
+                $id_categoria,
+                $id_categoria === null
+                    ? PDO::PARAM_NULL
+                    : PDO::PARAM_INT
+            );
+
+            $stmt->bindValue(
+                ':id',
+                (int)$id_producto,
+                PDO::PARAM_INT
+            );
+
+            if ($imagen !== null) {
+
+                $stmt->bindValue(
+                    ':imagen',
+                    $imagen,
+                    PDO::PARAM_STR
+                );
+            }
+
+            $stmt->execute();
+
             return true;
-        } catch (Exception $e) {
-            return "Error al registrar precio: " . $e->getMessage();
+
+        } catch (PDOException $e) {
+
+            error_log(
+                "Error editar producto: " .
+                $e->getMessage()
+            );
+
+            return "Error al editar producto: " .
+                $e->getMessage();
+        }
+    }
+
+    // =========================================================
+    // CAMBIAR ESTADO DEL PRODUCTO
+    // =========================================================
+
+    public function cambiarEstado($id_producto, $estado)
+    {
+        try {
+
+            $estado = ((int)$estado === 1) ? 1 : 0;
+
+            $sql = "
+                UPDATE producto
+                SET estado = :estado
+                WHERE id_producto = :id
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+
+            $stmt->bindValue(
+                ':estado',
+                $estado,
+                PDO::PARAM_INT
+            );
+
+            $stmt->bindValue(
+                ':id',
+                (int)$id_producto,
+                PDO::PARAM_INT
+            );
+
+            $stmt->execute();
+
+            return true;
+
+        } catch (PDOException $e) {
+
+            error_log(
+                "Error cambiarEstado producto: " .
+                $e->getMessage()
+            );
+
+            return "Error al cambiar estado: " .
+                $e->getMessage();
+        }
+    }
+
+    // =========================================================
+    // VERIFICAR NOMBRE
+    // =========================================================
+
+    public function existeNombre($nombre, $excluir_id = null)
+    {
+        try {
+
+            if ($excluir_id !== null) {
+
+                $sql = "
+                    SELECT id_producto
+                    FROM producto
+                    WHERE nombre = :nombre
+                      AND id_producto != :id
+                    LIMIT 1
+                ";
+
+                $stmt = $this->conn->prepare($sql);
+
+                $stmt->bindValue(
+                    ':nombre',
+                    trim($nombre),
+                    PDO::PARAM_STR
+                );
+
+                $stmt->bindValue(
+                    ':id',
+                    (int)$excluir_id,
+                    PDO::PARAM_INT
+                );
+
+            } else {
+
+                $sql = "
+                    SELECT id_producto
+                    FROM producto
+                    WHERE nombre = :nombre
+                    LIMIT 1
+                ";
+
+                $stmt = $this->conn->prepare($sql);
+
+                $stmt->bindValue(
+                    ':nombre',
+                    trim($nombre),
+                    PDO::PARAM_STR
+                );
+            }
+
+            $stmt->execute();
+
+            return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
+
+        } catch (PDOException $e) {
+
+            error_log(
+                "Error existeNombre producto: " .
+                $e->getMessage()
+            );
+
+            return false;
+        }
+    }
+
+
+    // =========================================================
+    // ELIMINAR PRODUCTO
+    // =========================================================
+
+    public function eliminar($id_producto)
+    {
+        try {
+
+            $producto = $this->obtenerPorId($id_producto);
+
+            if (!$producto) {
+                return "El producto no existe.";
+            }
+
+            $sql = "
+                DELETE FROM producto
+                WHERE id_producto = :id
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+
+            $stmt->bindValue(
+                ':id',
+                (int)$id_producto,
+                PDO::PARAM_INT
+            );
+
+            $stmt->execute();
+
+            return true;
+
+        } catch (PDOException $e) {
+
+            error_log(
+                "Error eliminar producto: " .
+                $e->getMessage()
+            );
+
+            return "No se puede eliminar el producto porque tiene información relacionada.";
         }
     }
 }
+
 ?>
