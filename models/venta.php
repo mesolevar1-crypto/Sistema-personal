@@ -1,294 +1,665 @@
 <?php
 /**
- * Modelo Venta
- * BD real:
- *   venta (id_venta, id_cliente, id_usuario, fecha, total, estado, metodo_pago)
- *   detalle_venta (id_detalle, id_venta, id_precio, cantidad, precio_unitario,
- *                  descuento_porcentaje, descuento_valor, subtotal)
- *   productos_precio (id_precio, id_producto, id_proveedor, precio_compra,
- *                     precio_venta, unidades_por_presentacion, id_unidad_venta, id_unidad_compra)
- *   inventario (id_inventario, id_producto, stock_actual, stock_minimo, fecha_actualizacion)
- *   factura (id_factura, id_venta, numero_factura, fecha_emision, subtotal,
- *            descuento_valor, total, estado)
+ * Modelo Venta — alineado a la estructura REAL de bdventas.
  *
- * Ganancia por unidad = precio_venta - (precio_compra / unidades_por_presentacion)
- *   cuando unidad_compra ≠ unidad_venta (conversión)
- * Ganancia por unidad = precio_venta - precio_compra
- *   cuando unidad_compra = unidad_venta (sin conversión)
+ * No existe tabla de precios de producto: el precio de venta se
+ * digita línea por línea en el formulario. El costo se obtiene
+ * automáticamente de la ÚLTIMA compra registrada del producto.
+ *
+ * Todas las cantidades se normalizan a una unidad de "contenido"
+ * (ej. kilogramos) para poder comparar costo de compra vs precio
+ * de venta aunque se compre en Bulto y se venda en Libra.
  */
-class Venta {
-
+class Venta
+{
     private $conn;
 
-    public function __construct($db) {
+    public function __construct($db)
+    {
         $this->conn = $db;
     }
 
-    // ── Lista todas las ventas ──────────────────────────────
-    public function obtenerTodas() {
-        $sql = "SELECT
+    // =========================================================
+    // LISTA DE VENTAS (ganancia calculada al vuelo, no se guarda)
+    // =========================================================
+    public function obtenerTodas()
+    {
+        try {
+            $sql = "
+                SELECT
                     v.id_venta,
                     v.fecha,
                     v.total,
                     v.estado,
                     v.metodo_pago,
-                    pc.nombre  AS cliente,
-                    pu.nombre  AS vendedor,
-                    f.numero_factura
+                    pc.nombre AS cliente,
+                    pu.nombre AS vendedor,
+                    f.numero_factura,
+                    COALESCE(g.ganancia, 0) AS ganancia
                 FROM venta v
-                LEFT JOIN cliente  c  ON v.id_cliente  = c.id_cliente
+                LEFT JOIN cliente  c  ON v.id_cliente = c.id_cliente
                 LEFT JOIN persona  pc ON c.id_persona  = pc.id_persona
-                LEFT JOIN usuarios u  ON v.id_usuario  = u.id_usuario
+                LEFT JOIN usuario  u  ON v.id_usuario  = u.id_usuario
                 LEFT JOIN persona  pu ON u.id_persona  = pu.id_persona
                 LEFT JOIN factura  f  ON f.id_venta    = v.id_venta
-                ORDER BY v.fecha DESC, v.id_venta DESC";
-        $stmt = $this->conn->prepare($sql);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+                LEFT JOIN (
+                    SELECT
+                        id_venta,
+                        SUM(subtotal - (costo_unitario * cantidad)) AS ganancia
+                    FROM detalle_venta
+                    GROUP BY id_venta
+                ) g ON g.id_venta = v.id_venta
+                ORDER BY v.fecha DESC, v.id_venta DESC
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute();
+
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        } catch (PDOException $e) {
+            error_log("Error obtenerTodas ventas: " . $e->getMessage());
+            return [];
+        }
     }
 
-    // ── Detalle de una venta con ganancia por línea ─────────
-    public function obtenerDetalle($id_venta) {
-        $sql = "SELECT
+    // =========================================================
+    // KPIs DEL PANEL
+    // Histórico completo: no se filtra por estado, así el
+    // acumulado no cambia cuando una venta se anula o reactiva.
+    // =========================================================
+    public function obtenerResumen()
+    {
+        try {
+            $sql = "
+                SELECT
+                    COUNT(*) AS total_ventas,
+                    COALESCE(SUM(total), 0) AS ingresos_total,
+                    SUM(CASE WHEN DATE(fecha) = CURDATE() THEN 1 ELSE 0 END) AS ventas_hoy,
+                    SUM(CASE WHEN DATE(fecha) = CURDATE() THEN total ELSE 0 END) AS ingresos_hoy
+                FROM venta
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute();
+
+            return $stmt->fetch(PDO::FETCH_ASSOC);
+
+        } catch (PDOException $e) {
+            error_log("Error obtenerResumen ventas: " . $e->getMessage());
+            return ['total_ventas' => 0, 'ingresos_total' => 0, 'ventas_hoy' => 0, 'ingresos_hoy' => 0];
+        }
+    }
+
+    // =========================================================
+    // CLIENTES ACTIVOS (para el select del modal)
+    // =========================================================
+    public function obtenerClientes()
+    {
+        try {
+            $sql = "
+                SELECT c.id_cliente, p.nombre
+                FROM cliente c
+                INNER JOIN persona p ON c.id_persona = p.id_persona
+                WHERE c.estado = 1
+                ORDER BY p.nombre ASC
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute();
+
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        } catch (PDOException $e) {
+            error_log("Error obtenerClientes: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    // =========================================================
+    // PRODUCTOS ACTIVOS + STOCK (para el select del modal)
+    // No trae precio: el precio se digita al vender.
+    // =========================================================
+    public function obtenerProductosDisponibles()
+    {
+        try {
+            $sql = "
+                SELECT
+                    p.id_producto,
+                    p.nombre,
+                    p.imagen,
+                    COALESCE(i.stock_actual, 0) AS stock
+                FROM producto p
+                LEFT JOIN inventario i ON p.id_producto = i.id_producto
+                WHERE p.estado = 1
+                ORDER BY p.nombre ASC
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute();
+
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        } catch (PDOException $e) {
+            error_log("Error obtenerProductosDisponibles: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    // =========================================================
+    // UNIDADES DE MEDIDA (para los selects de unidad / contenido)
+    // =========================================================
+    public function obtenerUnidades()
+    {
+        try {
+            $sql = "SELECT id_unidad, nombre FROM unidades_medida ORDER BY nombre ASC";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute();
+
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        } catch (PDOException $e) {
+            error_log("Error obtenerUnidades: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    // =========================================================
+    // COSTO DE REFERENCIA DE UN PRODUCTO
+    // Toma la ÚLTIMA compra registrada y devuelve el costo
+    // por UNIDAD DE CONTENIDO (ej. costo por kg).
+    // =========================================================
+    private function obtenerCostoPorContenido($id_producto)
+    {
+        try {
+            $sql = "
+                SELECT
+                    dc.precio_compra,
+                    dc.cantidad_por_unidad
+                FROM detalle_compra dc
+                INNER JOIN compra c ON dc.id_compra = c.id_compra
+                WHERE dc.id_producto = :id_producto
+                ORDER BY c.fecha DESC, dc.id_detalle DESC
+                LIMIT 1
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bindValue(':id_producto', (int)$id_producto, PDO::PARAM_INT);
+            $stmt->execute();
+
+            $fila = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$fila) {
+                // Nunca se ha comprado este producto: no hay costo de referencia.
+                return 0;
+            }
+
+            $precioCompra   = (float)$fila['precio_compra'];
+            $cantPorUnidad  = (int)($fila['cantidad_por_unidad'] ?? 0);
+
+            // Si la compra no tiene conversión, el costo por contenido es el precio directo.
+            return $cantPorUnidad > 0
+                ? round($precioCompra / $cantPorUnidad, 2)
+                : $precioCompra;
+
+        } catch (PDOException $e) {
+            error_log("Error obtenerCostoPorContenido: " . $e->getMessage());
+            return 0;
+        }
+    }
+
+    // =========================================================
+    // DETALLE DE UNA VENTA (con ganancia por línea)
+    // =========================================================
+    public function obtenerDetalle($id_venta)
+    {
+        try {
+            $sql = "
+                SELECT
                     dv.id_detalle,
+                    dv.id_producto,
+                    p.nombre AS producto,
                     dv.cantidad,
-                    dv.precio_unitario,
+                    dv.precio_venta,
                     dv.descuento_porcentaje,
                     dv.descuento_valor,
                     dv.subtotal,
-                    pr.nombre                           AS producto,
-                    uc.nombre                           AS unidad_compra,
-                    uv.nombre                           AS unidad_venta,
-                    pp.precio_compra,
-                    pp.precio_venta,
-                    pp.unidades_por_presentacion,
-                    pp.id_unidad_compra,
-                    pp.id_unidad_venta,
-                    -- Costo unitario de venta (con conversión si aplica)
-                    CASE
-                        WHEN pp.id_unidad_compra = pp.id_unidad_venta
-                             THEN pp.precio_compra
-                        ELSE ROUND(pp.precio_compra / pp.unidades_por_presentacion, 2)
-                    END AS costo_unitario_venta,
-                    -- Ganancia por unidad
-                    CASE
-                        WHEN pp.id_unidad_compra = pp.id_unidad_venta
-                             THEN pp.precio_venta - pp.precio_compra
-                        ELSE pp.precio_venta
-                             - ROUND(pp.precio_compra / pp.unidades_por_presentacion, 2)
-                    END AS ganancia_por_unidad,
-                    -- Ganancia total de la línea
-                    dv.cantidad * (
-                        CASE
-                            WHEN pp.id_unidad_compra = pp.id_unidad_venta
-                                 THEN pp.precio_venta - pp.precio_compra
-                            ELSE pp.precio_venta
-                                 - ROUND(pp.precio_compra / pp.unidades_por_presentacion, 2)
-                        END
-                    ) AS ganancia_linea
+                    dv.costo_unitario,
+                    (dv.subtotal - (dv.costo_unitario * dv.cantidad)) AS ganancia_linea,
+                    dv.cantidad_por_unidad,
+                    uv.nombre AS unidad_venta,
+                    uc.nombre AS unidad_contenido
                 FROM detalle_venta dv
-                INNER JOIN productos_precio pp ON dv.id_precio        = pp.id_precio
-                INNER JOIN producto         pr ON pp.id_producto      = pr.id_producto
-                INNER JOIN unidades_medida  uc ON pp.id_unidad_compra = uc.id_unidad
-                INNER JOIN unidades_medida  uv ON pp.id_unidad_venta  = uv.id_unidad
-                WHERE dv.id_venta = :id_venta";
-        $stmt = $this->conn->prepare($sql);
-        $stmt->bindParam(':id_venta', $id_venta);
-        $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+                INNER JOIN producto p ON dv.id_producto = p.id_producto
+                LEFT JOIN unidades_medida uv ON dv.id_unidad = uv.id_unidad
+                LEFT JOIN unidades_medida uc ON dv.id_unidad_contenido = uc.id_unidad
+                WHERE dv.id_venta = :id_venta
+                ORDER BY dv.id_detalle ASC
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bindValue(':id_venta', (int)$id_venta, PDO::PARAM_INT);
+            $stmt->execute();
+
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        } catch (PDOException $e) {
+            error_log("Error obtenerDetalle venta: " . $e->getMessage());
+            return [];
+        }
     }
 
-    // ── KPIs ────────────────────────────────────────────────
-    public function obtenerResumen() {
-        $sql = "SELECT
-                    COUNT(*)                                                  AS total_ventas,
-                    COALESCE(SUM(total), 0)                                   AS ingresos_total,
-                    SUM(CASE WHEN fecha = CURDATE() THEN 1     ELSE 0 END)    AS ventas_hoy,
-                    SUM(CASE WHEN fecha = CURDATE() THEN total ELSE 0 END)    AS ingresos_hoy
-                FROM venta WHERE estado = 'activa'";
-        $stmt = $this->conn->prepare($sql);
-        $stmt->execute();
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+    // =========================================================
+    // CABECERA COMPLETA DE UNA VENTA (para el comprobante)
+    // =========================================================
+    public function obtenerVentaCompleta($id_venta)
+    {
+        try {
+            $sql = "
+                SELECT
+                    v.id_venta,
+                    v.fecha,
+                    v.total,
+                    v.metodo_pago,
+                    v.estado,
+                    pc.nombre AS cliente,
+                    pu.nombre AS vendedor,
+                    f.numero_factura,
+                    f.fecha_emision,
+                    f.subtotal AS factura_subtotal,
+                    f.descuento_valor AS factura_descuento
+                FROM venta v
+                LEFT JOIN cliente c  ON v.id_cliente = c.id_cliente
+                LEFT JOIN persona pc ON c.id_persona  = pc.id_persona
+                LEFT JOIN usuario u  ON v.id_usuario  = u.id_usuario
+                LEFT JOIN persona pu ON u.id_persona  = pu.id_persona
+                LEFT JOIN factura f  ON f.id_venta    = v.id_venta
+                WHERE v.id_venta = :id_venta
+                LIMIT 1
+            ";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bindValue(':id_venta', (int)$id_venta, PDO::PARAM_INT);
+            $stmt->execute();
+
+            return $stmt->fetch(PDO::FETCH_ASSOC);
+
+        } catch (PDOException $e) {
+            error_log("Error obtenerVentaCompleta: " . $e->getMessage());
+            return false;
+        }
     }
 
-    // ── Clientes activos para el select del modal ──────────
-    public function obtenerClientes() {
-        $sql = "SELECT c.id_cliente, p.nombre
-                FROM cliente c
-                INNER JOIN persona p ON c.id_persona = p.id_persona
-                WHERE p.estado = 'activo'
-                ORDER BY p.nombre ASC";
-        $stmt = $this->conn->prepare($sql);
-        $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    /**
-     * Productos disponibles para el modal de nueva venta.
-     * Carga desde productos_precio (precio_venta y costo).
-     * Stock desde inventario.stock_actual.
-     */
-    public function obtenerProductosDisponibles() {
-        $sql = "SELECT
-                    pp.id_precio,
-                    pp.id_producto,
-                    pp.precio_venta,
-                    pp.precio_compra,
-                    pp.unidades_por_presentacion,
-                    pp.id_unidad_compra,
-                    pp.id_unidad_venta,
-                    pr.nombre                           AS producto,
-                    uv.nombre                           AS unidad_venta,
-                    uc.nombre                           AS unidad_compra,
-                    COALESCE(i.stock_actual, 0)         AS stock,
-                    -- Ganancia estimada por unidad
-                    CASE
-                        WHEN pp.id_unidad_compra = pp.id_unidad_venta
-                             THEN pp.precio_venta - pp.precio_compra
-                        ELSE pp.precio_venta
-                             - ROUND(pp.precio_compra / pp.unidades_por_presentacion, 2)
-                    END AS ganancia_estimada
-                FROM productos_precio pp
-                INNER JOIN producto        pr ON pp.id_producto      = pr.id_producto
-                INNER JOIN unidades_medida uv ON pp.id_unidad_venta  = uv.id_unidad
-                INNER JOIN unidades_medida uc ON pp.id_unidad_compra = uc.id_unidad
-                LEFT JOIN  inventario      i  ON pp.id_producto      = i.id_producto
-                WHERE pp.estado = 'activo'
-                  AND pr.estado = 'activo'
-                ORDER BY pr.nombre ASC";
-        $stmt = $this->conn->prepare($sql);
-        $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    /**
-     * Registra una venta completa en una TRANSACCIÓN:
-     * 1. INSERT venta
-     * 2. INSERT detalle_venta × N
-     * 3. UPDATE inventario.stock_actual -= cantidad
-     * 4. INSERT factura
-     */
-    public function registrar($id_usuario, $id_cliente, $metodo_pago, $items) {
+    // =========================================================
+    // REGISTRAR VENTA COMPLETA (TRANSACCIÓN)
+    //
+    // $items[] = [
+    //   'id_producto', 'cantidad', 'precio_venta', 'descuento_porcentaje',
+    //   'id_unidad', 'cantidad_por_unidad', 'id_unidad_contenido'
+    // ]
+    // =========================================================
+    public function registrar($id_usuario, $id_cliente, $metodo_pago, $items)
+    {
         try {
             $this->conn->beginTransaction();
 
-            // Calcular totales
-            $total          = 0;
-            $descuento_total = 0;
-            foreach ($items as $item) {
-                $total          += $item['subtotal'];
-                $descuento_total += $item['descuento_valor'] ?? 0;
+            // ----------------------------------------------------
+            // VALIDAR CLIENTE ACTIVO
+            // ----------------------------------------------------
+            $stmtCli = $this->conn->prepare(
+                "SELECT id_cliente FROM cliente WHERE id_cliente = :id AND estado = 1 LIMIT 1"
+            );
+            $stmtCli->bindValue(':id', (int)$id_cliente, PDO::PARAM_INT);
+            $stmtCli->execute();
+
+            if (!$stmtCli->fetch()) {
+                $this->conn->rollBack();
+                return "El cliente seleccionado no existe o está inactivo.";
             }
 
-            // PASO 1: INSERT venta
-            $stmt = $this->conn->prepare(
-                "INSERT INTO venta (id_cliente, id_usuario, fecha, total, estado, metodo_pago)
-                 VALUES (:id_cliente, :id_usuario, CURDATE(), :total, 'activa', :metodo_pago)"
+            $itemsCalculados = [];
+            $total = 0;
+
+            foreach ($items as $item) {
+
+                $id_producto  = (int)$item['id_producto'];
+                $cantidad     = (int)$item['cantidad'];
+                $precio_venta = (float)$item['precio_venta'];
+                $desc_pct     = (float)($item['descuento_porcentaje'] ?? 0);
+                $id_unidad    = !empty($item['id_unidad']) ? (int)$item['id_unidad'] : null;
+                $cant_x_und   = !empty($item['cantidad_por_unidad']) ? (int)$item['cantidad_por_unidad'] : 1;
+                $id_und_cont  = !empty($item['id_unidad_contenido']) ? (int)$item['id_unidad_contenido'] : $id_unidad;
+
+                if ($cantidad <= 0 || $precio_venta <= 0) {
+                    $this->conn->rollBack();
+                    return "Cantidad o precio inválido en uno de los productos.";
+                }
+
+                if ($desc_pct < 0 || $desc_pct > 100) {
+                    $this->conn->rollBack();
+                    return "El descuento debe estar entre 0% y 100%.";
+                }
+
+                // ----------------------------------------------------
+                // VALIDAR PRODUCTO ACTIVO Y BLOQUEAR SU FILA DE INVENTARIO
+                // (FOR UPDATE evita condiciones de carrera con ventas simultáneas)
+                // ----------------------------------------------------
+                $stmtProd = $this->conn->prepare(
+                    "SELECT p.nombre, COALESCE(i.stock_actual, 0) AS stock
+                     FROM producto p
+                     LEFT JOIN inventario i ON p.id_producto = i.id_producto
+                     WHERE p.id_producto = :id AND p.estado = 1
+                     LIMIT 1 FOR UPDATE"
+                );
+                $stmtProd->bindValue(':id', $id_producto, PDO::PARAM_INT);
+                $stmtProd->execute();
+                $prod = $stmtProd->fetch(PDO::FETCH_ASSOC);
+
+                if (!$prod) {
+                    $this->conn->rollBack();
+                    return "Uno de los productos ya no existe o está inactivo.";
+                }
+
+                // ----------------------------------------------------
+                // CANTIDAD REAL A DESCONTAR DEL INVENTARIO
+                // (cantidad vendida × contenido por unidad de venta)
+                // ----------------------------------------------------
+                $cantidadContenido = $cantidad * $cant_x_und;
+
+                if ($cantidadContenido > (int)$prod['stock']) {
+                    $this->conn->rollBack();
+                    return "Stock insuficiente para \"{$prod['nombre']}\". Disponible: {$prod['stock']}.";
+                }
+
+                // ----------------------------------------------------
+                // CÁLCULOS DE DINERO (recalculados en servidor, nunca
+                // se confía en el subtotal que mande el navegador)
+                // ----------------------------------------------------
+                $descuento_valor = round($precio_venta * $cantidad * $desc_pct / 100, 2);
+                $subtotal        = round(($precio_venta * $cantidad) - $descuento_valor, 2);
+
+                // ----------------------------------------------------
+                // COSTO DE REFERENCIA (última compra), llevado a la
+                // misma unidad de venta para poder comparar contra precio_venta
+                // ----------------------------------------------------
+                $costoPorContenido = $this->obtenerCostoPorContenido($id_producto);
+                $costo_unitario    = round($costoPorContenido * $cant_x_und, 2);
+
+                $total += $subtotal;
+
+                $itemsCalculados[] = [
+                    'id_producto'          => $id_producto,
+                    'cantidad'             => $cantidad,
+                    'precio_venta'         => $precio_venta,
+                    'descuento_porcentaje' => $desc_pct,
+                    'descuento_valor'      => $descuento_valor,
+                    'subtotal'             => $subtotal,
+                    'id_unidad'            => $id_unidad,
+                    'cantidad_por_unidad'  => $cant_x_und,
+                    'id_unidad_contenido'  => $id_und_cont,
+                    'costo_unitario'       => $costo_unitario,
+                    'cantidad_contenido'   => $cantidadContenido,
+                ];
+            }
+
+            if (empty($itemsCalculados)) {
+                $this->conn->rollBack();
+                return "Debes agregar al menos un producto.";
+            }
+
+            // ----------------------------------------------------
+            // INSERT VENTA
+            // ----------------------------------------------------
+            $stmtV = $this->conn->prepare(
+                "INSERT INTO venta (id_cliente, id_usuario, fecha, total, metodo_pago, estado)
+                 VALUES (:id_cliente, :id_usuario, NOW(), :total, :metodo_pago, 1)"
             );
-            $stmt->execute([
+            $stmtV->execute([
                 ':id_cliente'  => $id_cliente,
                 ':id_usuario'  => $id_usuario,
                 ':total'       => $total,
                 ':metodo_pago' => $metodo_pago,
             ]);
-            $id_venta = $this->conn->lastInsertId();
+            $id_venta = (int)$this->conn->lastInsertId();
 
-            // PASO 2: INSERT detalle_venta
+            // ----------------------------------------------------
+            // INSERT DETALLE_VENTA + DESCONTAR INVENTARIO
+            // ----------------------------------------------------
             $stmtD = $this->conn->prepare(
                 "INSERT INTO detalle_venta
-                     (id_venta, id_precio, cantidad, precio_unitario,
-                      descuento_porcentaje, descuento_valor, subtotal)
+                     (id_venta, id_producto, cantidad, precio_venta,
+                      descuento_porcentaje, descuento_valor, subtotal,
+                      id_unidad, cantidad_por_unidad, id_unidad_contenido, costo_unitario)
                  VALUES
-                     (:id_venta, :id_precio, :cantidad, :precio_unitario,
-                      :desc_pct, :desc_val, :subtotal)"
+                     (:id_venta, :id_producto, :cantidad, :precio_venta,
+                      :descuento_porcentaje, :descuento_valor, :subtotal,
+                      :id_unidad, :cantidad_por_unidad, :id_unidad_contenido, :costo_unitario)"
             );
-            foreach ($items as $item) {
-                $stmtD->execute([
-                    ':id_venta'       => $id_venta,
-                    ':id_precio'      => $item['id_precio'],
-                    ':cantidad'       => $item['cantidad'],
-                    ':precio_unitario'=> $item['precio_unitario'],
-                    ':desc_pct'       => $item['descuento_porcentaje'] ?? 0,
-                    ':desc_val'       => $item['descuento_valor'] ?? 0,
-                    ':subtotal'       => $item['subtotal'],
-                ]);
-            }
 
-            // PASO 3: Descontar inventario
             $stmtI = $this->conn->prepare(
                 "UPDATE inventario
-                 SET stock_actual        = GREATEST(0, stock_actual - :cantidad),
-                     fecha_actualizacion = CURDATE()
+                 SET stock_actual = stock_actual - :cantidad_contenido,
+                     fecha_actualizacion = NOW()
                  WHERE id_producto = :id_producto"
             );
-            foreach ($items as $item) {
+
+            foreach ($itemsCalculados as $it) {
+
+                $stmtD->execute([
+                    ':id_venta'             => $id_venta,
+                    ':id_producto'          => $it['id_producto'],
+                    ':cantidad'             => $it['cantidad'],
+                    ':precio_venta'         => $it['precio_venta'],
+                    ':descuento_porcentaje' => $it['descuento_porcentaje'],
+                    ':descuento_valor'      => $it['descuento_valor'],
+                    ':subtotal'             => $it['subtotal'],
+                    ':id_unidad'            => $it['id_unidad'],
+                    ':cantidad_por_unidad'  => $it['cantidad_por_unidad'],
+                    ':id_unidad_contenido'  => $it['id_unidad_contenido'],
+                    ':costo_unitario'       => $it['costo_unitario'],
+                ]);
+
                 $stmtI->execute([
-                    ':cantidad'    => $item['cantidad'],
-                    ':id_producto' => $item['id_producto'],
+                    ':cantidad_contenido' => $it['cantidad_contenido'],
+                    ':id_producto'        => $it['id_producto'],
                 ]);
             }
 
-            // PASO 4: Generar factura automática
-            $numero = $this->generarNumeroFactura();
-            $subtotalSinDesc = $total + $descuento_total;
+            // ----------------------------------------------------
+            // INSERT FACTURA
+            // ----------------------------------------------------
+            $descuentoTotal   = array_sum(array_column($itemsCalculados, 'descuento_valor'));
+            $subtotalSinDesc  = $total + $descuentoTotal;
+            $numeroFactura    = $this->generarNumeroFactura();
+
             $stmtF = $this->conn->prepare(
                 "INSERT INTO factura
-                     (id_venta, numero_factura, fecha_emision, subtotal,
-                      descuento_valor, total, estado)
+                     (id_venta, numero_factura, fecha_emision, subtotal, descuento_valor, total, estado)
                  VALUES
-                     (:id_venta, :numero, CURDATE(), :subtotal,
-                      :descuento, :total, 'activa')"
+                     (:id_venta, :numero, NOW(), :subtotal, :descuento, :total, 1)"
             );
             $stmtF->execute([
                 ':id_venta'  => $id_venta,
-                ':numero'    => $numero,
+                ':numero'    => $numeroFactura,
                 ':subtotal'  => $subtotalSinDesc,
-                ':descuento' => $descuento_total,
+                ':descuento' => $descuentoTotal,
                 ':total'     => $total,
             ]);
 
             $this->conn->commit();
-            return ['id_venta' => $id_venta, 'numero_factura' => $numero];
+
+            return ['id_venta' => $id_venta, 'numero_factura' => $numeroFactura];
 
         } catch (Exception $e) {
             $this->conn->rollBack();
-            return "Error al registrar: " . $e->getMessage();
+            error_log("Error registrar venta: " . $e->getMessage());
+            return "Error al registrar la venta: " . $e->getMessage();
         }
     }
 
-    // ── Generar número de factura único ─────────────────────
-    private function generarNumeroFactura() {
-        $stmt = $this->conn->prepare(
-            "SELECT COUNT(*) AS total FROM factura"
-        );
+    // =========================================================
+    // NÚMERO DE FACTURA CORRELATIVO
+    // =========================================================
+    private function generarNumeroFactura()
+    {
+        $stmt = $this->conn->prepare("SELECT COUNT(*) AS total FROM factura");
         $stmt->execute();
-        $row    = $stmt->fetch(PDO::FETCH_ASSOC);
-        $numero = intval($row['total']) + 1;
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $numero = (int)$row['total'] + 1;
+
         return 'FAC-' . str_pad($numero, 6, '0', STR_PAD_LEFT);
     }
 
-    // ── Eliminar venta y sus detalles ───────────────────────
-    public function eliminar($id_venta) {
+    // =========================================================
+    // ANULAR VENTA (no se borra físicamente, se conserva el
+    // histórico y se devuelve el stock al inventario)
+    // =========================================================
+    public function eliminar($id_venta)
+    {
         try {
             $this->conn->beginTransaction();
-            $this->conn->prepare("DELETE FROM factura       WHERE id_venta = ?")->execute([$id_venta]);
-            $this->conn->prepare("DELETE FROM detalle_venta WHERE id_venta = ?")->execute([$id_venta]);
-            $this->conn->prepare("DELETE FROM venta         WHERE id_venta = ?")->execute([$id_venta]);
+
+            $stmtV = $this->conn->prepare(
+                "SELECT id_venta FROM venta WHERE id_venta = :id AND estado = 1 LIMIT 1 FOR UPDATE"
+            );
+            $stmtV->bindValue(':id', (int)$id_venta, PDO::PARAM_INT);
+            $stmtV->execute();
+
+            if (!$stmtV->fetch()) {
+                $this->conn->rollBack();
+                return "La venta no existe o ya está anulada.";
+            }
+
+            // ----------------------------------------------------
+            // DEVOLVER STOCK DE CADA LÍNEA
+            // ----------------------------------------------------
+            $stmtLineas = $this->conn->prepare(
+                "SELECT id_producto, cantidad, cantidad_por_unidad
+                 FROM detalle_venta
+                 WHERE id_venta = :id"
+            );
+            $stmtLineas->bindValue(':id', (int)$id_venta, PDO::PARAM_INT);
+            $stmtLineas->execute();
+            $lineas = $stmtLineas->fetchAll(PDO::FETCH_ASSOC);
+
+            $stmtRestaurar = $this->conn->prepare(
+                "UPDATE inventario
+                 SET stock_actual = stock_actual + :cantidad_contenido,
+                     fecha_actualizacion = NOW()
+                 WHERE id_producto = :id_producto"
+            );
+
+            foreach ($lineas as $l) {
+                $cantPorUnidad = (int)($l['cantidad_por_unidad'] ?: 1);
+                $cantidadContenido = (int)$l['cantidad'] * $cantPorUnidad;
+
+                $stmtRestaurar->execute([
+                    ':cantidad_contenido' => $cantidadContenido,
+                    ':id_producto'        => $l['id_producto'],
+                ]);
+            }
+
+            // ----------------------------------------------------
+            // MARCAR VENTA Y FACTURA COMO ANULADAS
+            // ----------------------------------------------------
+            $this->conn->prepare("UPDATE venta   SET estado = 0 WHERE id_venta = ?")->execute([$id_venta]);
+            $this->conn->prepare("UPDATE factura SET estado = 0 WHERE id_venta = ?")->execute([$id_venta]);
+
             $this->conn->commit();
             return true;
+
         } catch (Exception $e) {
             $this->conn->rollBack();
-            return "Error al eliminar: " . $e->getMessage();
+            error_log("Error anular venta: " . $e->getMessage());
+            return "Error al anular la venta: " . $e->getMessage();
         }
     }
 
-    // ── Obtener factura de una venta ────────────────────────
-    public function obtenerFactura($id_venta) {
-        $stmt = $this->conn->prepare(
-            "SELECT * FROM factura WHERE id_venta = :id LIMIT 1"
-        );
-        $stmt->bindParam(':id', $id_venta);
-        $stmt->execute();
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+    // =========================================================
+    // REACTIVAR VENTA (revierte una anulación: vuelve a poner
+    // la venta y su factura como activas, y vuelve a descontar
+    // el inventario. Si ya no hay stock suficiente, se rechaza.)
+    // =========================================================
+    public function reactivar($id_venta)
+    {
+        try {
+            $this->conn->beginTransaction();
+
+            $stmtV = $this->conn->prepare(
+                "SELECT id_venta FROM venta WHERE id_venta = :id AND estado = 0 LIMIT 1 FOR UPDATE"
+            );
+            $stmtV->bindValue(':id', (int)$id_venta, PDO::PARAM_INT);
+            $stmtV->execute();
+
+            if (!$stmtV->fetch()) {
+                $this->conn->rollBack();
+                return "La venta no existe o ya está activa.";
+            }
+
+            // ----------------------------------------------------
+            // TRAER LAS LÍNEAS Y BLOQUEAR EL INVENTARIO INVOLUCRADO
+            // ----------------------------------------------------
+            $stmtLineas = $this->conn->prepare(
+                "SELECT dv.id_producto, dv.cantidad, dv.cantidad_por_unidad,
+                        p.nombre, COALESCE(i.stock_actual, 0) AS stock
+                 FROM detalle_venta dv
+                 INNER JOIN producto p ON p.id_producto = dv.id_producto
+                 LEFT JOIN inventario i ON i.id_producto = dv.id_producto
+                 WHERE dv.id_venta = :id
+                 FOR UPDATE"
+            );
+            $stmtLineas->bindValue(':id', (int)$id_venta, PDO::PARAM_INT);
+            $stmtLineas->execute();
+            $lineas = $stmtLineas->fetchAll(PDO::FETCH_ASSOC);
+
+            // ----------------------------------------------------
+            // VALIDAR QUE HAYA STOCK SUFICIENTE ANTES DE TOCAR NADA
+            // ----------------------------------------------------
+            foreach ($lineas as $l) {
+                $cantPorUnidad     = (int)($l['cantidad_por_unidad'] ?: 1);
+                $cantidadContenido = (int)$l['cantidad'] * $cantPorUnidad;
+
+                if ($cantidadContenido > (int)$l['stock']) {
+                    $this->conn->rollBack();
+                    return "Stock insuficiente para \"{$l['nombre']}\" al reactivar. Disponible: {$l['stock']}, se necesitan: {$cantidadContenido}.";
+                }
+            }
+
+            // ----------------------------------------------------
+            // DESCONTAR NUEVAMENTE EL INVENTARIO
+            // ----------------------------------------------------
+            $stmtDescontar = $this->conn->prepare(
+                "UPDATE inventario
+                 SET stock_actual = stock_actual - :cantidad_contenido,
+                     fecha_actualizacion = NOW()
+                 WHERE id_producto = :id_producto"
+            );
+
+            foreach ($lineas as $l) {
+                $cantPorUnidad     = (int)($l['cantidad_por_unidad'] ?: 1);
+                $cantidadContenido = (int)$l['cantidad'] * $cantPorUnidad;
+
+                $stmtDescontar->execute([
+                    ':cantidad_contenido' => $cantidadContenido,
+                    ':id_producto'        => $l['id_producto'],
+                ]);
+            }
+
+            // ----------------------------------------------------
+            // MARCAR VENTA Y FACTURA COMO ACTIVAS DE NUEVO
+            // ----------------------------------------------------
+            $this->conn->prepare("UPDATE venta   SET estado = 1 WHERE id_venta = ?")->execute([$id_venta]);
+            $this->conn->prepare("UPDATE factura SET estado = 1 WHERE id_venta = ?")->execute([$id_venta]);
+
+            $this->conn->commit();
+            return true;
+
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            error_log("Error reactivar venta: " . $e->getMessage());
+            return "Error al reactivar la venta: " . $e->getMessage();
+        }
     }
 }
-?>

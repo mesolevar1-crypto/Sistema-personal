@@ -29,7 +29,7 @@ $unidades = $compraModel->obtenerUnidades();
 // ============================================================
 // PAGINACIÓN
 // ============================================================
-$porPagina = 10;
+$porPagina = 5;
 $totalCompras = count($compras);
 $totalPaginas = (int)ceil($totalCompras / $porPagina);
 $paginaActual = max(
@@ -140,28 +140,30 @@ require_once __DIR__ . '/../layouts/sidebar.php';
     text-transform:uppercase;
     margin-bottom:3px;
 }
-.pag-btn {
-    padding:7px 13px;
-    border-radius:8px;
+.paginacion {
+    padding:14px 20px;
+    border-top:1px solid #E5E7EB;
+    display:flex;
+    justify-content:center;
+    gap:6px;
+}
+.pag {
+    width:36px;
+    height:36px;
     border:1px solid #E5E7EB;
+    border-radius:9px;
     background:#fff;
     color:#5F6673;
-    font-size:.85rem;
-    font-weight:600;
+    display:flex;
+    align-items:center;
+    justify-content:center;
     text-decoration:none;
-    transition: background .15s, border-color .15s, color .15s;
 }
-.pag-btn:hover {
-    background:#DDF5EC;
-    border-color:#61D0A7;
-    color:#01614B;
-}
-.pag-btn.activa {
+.pag:hover, .pag.activa {
     background:#00875F;
-    border-color:#00875F;
     color:#fff;
 }
-.pag-btn.deshabilitado {
+.pag.deshabilitado {
     opacity:.4;
     pointer-events:none;
 }
@@ -345,26 +347,14 @@ require_once __DIR__ . '/../layouts/sidebar.php';
         </div>
 
         <!-- PAGINACIÓN -->
-        <?php if ($totalPaginas > 1): ?>
-            <div style="padding:14px 20px;border-top:1px solid #E5E7EB;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-                <span style="font-size:.8rem;color:#5F6673;">
-                    Página <strong style="color:#171717;"><?= $paginaActual ?></strong>
-                    de <strong style="color:#171717;"><?= $totalPaginas ?></strong>
-                </span>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                    <a href="?pagina=<?= $paginaActual - 1 ?>" class="pag-btn <?= $paginaActual <= 1 ? 'deshabilitado' : '' ?>">
-                        ← Anterior
-                    </a>
-                    <?php for ($pg = 1; $pg <= $totalPaginas; $pg++): ?>
-                        <a href="?pagina=<?= $pg ?>" class="pag-btn <?= $pg === $paginaActual ? 'activa' : '' ?>">
-                            <?= $pg ?>
-                        </a>
-                    <?php endfor; ?>
-                    <a href="?pagina=<?= $paginaActual + 1 ?>" class="pag-btn <?= $paginaActual >= $totalPaginas ? 'deshabilitado' : '' ?>">
-                        Siguiente →
-                    </a>
-                </div>
-            </div>
+        <?php if ($totalCompras > $porPagina): ?>
+            <nav class="paginacion">
+                <a class="pag <?= $paginaActual <= 1 ? 'deshabilitado' : '' ?>" href="?pagina=<?= max(1, $paginaActual - 1) ?>">«</a>
+                <?php for ($i = 1; $i <= $totalPaginas; $i++): ?>
+                    <a class="pag <?= $i === $paginaActual ? 'activa' : '' ?>" href="?pagina=<?= $i ?>"><?= $i ?></a>
+                <?php endfor; ?>
+                <a class="pag <?= $paginaActual >= $totalPaginas ? 'deshabilitado' : '' ?>" href="?pagina=<?= min($totalPaginas, $paginaActual + 1) ?>">»</a>
+            </nav>
         <?php endif; ?>
     </div>
 </div>
