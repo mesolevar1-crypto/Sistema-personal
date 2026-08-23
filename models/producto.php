@@ -15,73 +15,49 @@ class Producto
     // =========================================================
 
     public function obtenerTodos()
-    {
-        try {
+{
+    try {
 
-            $sql = "
-                SELECT
-                    p.id_producto,
-                    p.nombre,
-                    p.descripcion,
-                    p.id_categoria,
-                    p.imagen,
-                    p.estado,
+        $sql = "
+            SELECT
+                p.id_producto,
+                p.nombre,
+                p.descripcion,
+                p.id_categoria,
+                p.imagen,
+                p.estado,
 
-                    c.tipo AS categoria,
+                c.tipo AS categoria,
 
-                    COALESCE(i.stock_actual, 0) AS stock_actual,
-                    COALESCE(i.stock_minimo, 0) AS stock_minimo,
+                COALESCE(i.stock_actual, 0) AS stock_actual,
+                COALESCE(i.stock_minimo, 0) AS stock_minimo
 
-                    COALESCE(
-                        (
-                            SELECT pp.precio_venta
-                            FROM producto_precios pp
-                            WHERE pp.id_producto = p.id_producto
-                              AND pp.estado = 1
-                            ORDER BY pp.id_precio ASC
-                            LIMIT 1
-                        ),
-                        0
-                    ) AS precio_venta,
+            FROM producto p
 
-                    COALESCE(
-                        (
-                            SELECT pp.precio_compra
-                            FROM producto_precios pp
-                            WHERE pp.id_producto = p.id_producto
-                              AND pp.estado = 1
-                            ORDER BY pp.id_precio ASC
-                            LIMIT 1
-                        ),
-                        0
-                    ) AS precio_compra
+            LEFT JOIN categoria c
+                ON p.id_categoria = c.id_categoria
 
-                FROM producto p
+            LEFT JOIN inventario i
+                ON p.id_producto = i.id_producto
 
-                LEFT JOIN categoria c
-                    ON p.id_categoria = c.id_categoria
+            ORDER BY p.id_producto DESC
+        ";
 
-                LEFT JOIN inventario i
-                    ON p.id_producto = i.id_producto
+        $stmt = $this->conn->prepare($sql);
+        $stmt->execute();
 
-                ORDER BY p.id_producto DESC
-            ";
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $stmt = $this->conn->prepare($sql);
-            $stmt->execute();
+    } catch (PDOException $e) {
 
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        error_log(
+            "Error obtenerTodos productos: " .
+            $e->getMessage()
+        );
 
-        } catch (PDOException $e) {
-
-            error_log(
-                "Error obtenerTodos productos: " .
-                $e->getMessage()
-            );
-
-            return [];
-        }
+        return [];
     }
+}
 
     // =========================================================
     // OBTENER PRODUCTO POR ID

@@ -2,8 +2,11 @@
 // ============================================================
 // Vista: Inventario
 // Fuente de stock: inventario.stock_actual
+// Orden: más reciente a más antiguo (fecha_actualizacion DESC)
 // ============================================================
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 if (!isset($_SESSION['usuario'])) {
     header("Location: ../usuarios/login.php");
@@ -23,6 +26,31 @@ $estado = trim($_GET['estado'] ?? '');
 
 $inventario = $inventarioModel->obtenerTodos($buscar, $estado);
 $resumen    = $inventarioModel->obtenerResumen();
+
+// ============================================================
+// PAGINACIÓN (mismo patrón que Compras: se pagina en PHP sobre
+// el resultado ya filtrado/ordenado por el modelo)
+// ============================================================
+$porPagina = 5;
+$totalItems = count($inventario);
+$totalPaginas = (int)ceil($totalItems / $porPagina);
+$paginaActual = max(
+    1,
+    min((int)($_GET['pagina'] ?? 1), max(1, $totalPaginas))
+);
+$offset = ($paginaActual - 1) * $porPagina;
+$inventarioPag = array_slice($inventario, $offset, $porPagina);
+
+/**
+ * Construye la URL de una página de paginación conservando los
+ * filtros de búsqueda y estado actuales.
+ */
+function inventarioPagUrl($pagina, $buscar, $estado) {
+    $params = ['pagina' => $pagina];
+    if ($buscar !== '') $params['buscar'] = $buscar;
+    if ($estado !== '') $params['estado'] = $estado;
+    return '?' . http_build_query($params);
+}
 
 $titulo = "Panel de inventario - Administrador";
 require_once __DIR__ . '/../layouts/header.php';
@@ -231,8 +259,8 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if (!empty($inventario)): ?>
-                        <?php foreach ($inventario as $row):
+                    <?php if (!empty($inventarioPag)): ?>
+                        <?php foreach ($inventarioPag as $row):
                             $sa = intval($row['stock_actual']);
                             $sm = intval($row['stock_minimo']);
 
@@ -355,6 +383,25 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                 </tbody>
             </table>
         </div>
+
+        <!-- PAGINACIÓN -->
+        <?php if ($totalPaginas > 1): ?>
+            <div style="padding:14px 20px;border-top:1px solid #E5E7EB;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <a href="<?= inventarioPagUrl($paginaActual - 1, $buscar, $estado) ?>" class="pag-btn <?= $paginaActual <= 1 ? 'deshabilitado' : '' ?>">
+                        ← Anterior
+                    </a>
+                    <?php for ($pg = 1; $pg <= $totalPaginas; $pg++): ?>
+                        <a href="<?= inventarioPagUrl($pg, $buscar, $estado) ?>" class="pag-btn <?= $pg === $paginaActual ? 'activa' : '' ?>">
+                            <?= $pg ?>
+                        </a>
+                    <?php endfor; ?>
+                    <a href="<?= inventarioPagUrl($paginaActual + 1, $buscar, $estado) ?>" class="pag-btn <?= $paginaActual >= $totalPaginas ? 'deshabilitado' : '' ?>">
+                        Siguiente →
+                    </a>
+                </div>
+            </div>
+        <?php endif; ?>
 
     </div><!-- /tabla -->
 
