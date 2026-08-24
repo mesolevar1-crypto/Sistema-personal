@@ -242,7 +242,7 @@ class Compra
             ");
 
             $stmtInventarioCrear = $this->db->prepare("
-                INSERT INTO inventario (id_producto, stock_actual, stcok_minimo, fecha_actualizacion)
+                INSERT INTO inventario (id_producto, stock_actual, stock_minimo, fecha_actualizacion)
                 VALUES (:id_producto, :unidades, 0, NOW())
             ");
 

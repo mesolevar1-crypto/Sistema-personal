@@ -4,14 +4,8 @@
  * Fuente principal de stock: inventario.stock_actual
  * Tablas: inventario, producto, categoria
  *
- * NOTA IMPORTANTE SOBRE NOMBRES DE COLUMNA:
- * La tabla real `inventario` tiene la columna `stcok_minimo` (así,
- * con el typo -- no es un error de este archivo, es el nombre real
- * en la base de datos). Todo el SQL de este modelo usa `stcok_minimo`
- * tal cual. Hacia afuera (arrays devueltos a la vista/controlador)
- * se sigue usando la clave `stock_minimo` (bien escrita) mediante
- * alias `AS`, para no tener que tocar la vista ni el controlador
- * que ya funcionan con ese nombre de clave.
+ * Columnas reales de `inventario`: stock_actual, stock_minimo,
+ * fecha_actualizacion, id_producto, id_inventario.
  */
 class Inventario {
 
@@ -35,7 +29,7 @@ class Inventario {
                     p.nombre                                 AS producto,
                     c.tipo                                   AS categoria,
                     COALESCE(i.stock_actual, 0)              AS stock_actual,
-                    COALESCE(i.stcok_minimo, 0)              AS stock_minimo,
+                    COALESCE(i.stock_minimo, 0)              AS stock_minimo,
                     i.fecha_actualizacion,
                     i.id_inventario
                 FROM producto p
@@ -56,9 +50,9 @@ class Inventario {
             $sql .= " AND COALESCE(i.stock_actual, 0) = 0";
         } elseif ($estado === 'bajo') {
             $sql .= " AND COALESCE(i.stock_actual, 0) > 0
-                      AND COALESCE(i.stock_actual, 0) <= COALESCE(i.stcok_minimo, 0)";
+                      AND COALESCE(i.stock_actual, 0) <= COALESCE(i.stock_minimo, 0)";
         } elseif ($estado === 'disponible') {
-            $sql .= " AND COALESCE(i.stock_actual, 0) > COALESCE(i.stcok_minimo, 0)";
+            $sql .= " AND COALESCE(i.stock_actual, 0) > COALESCE(i.stock_minimo, 0)";
         }
 
         // Del más reciente al más antiguo según fecha_actualizacion.
@@ -85,7 +79,7 @@ class Inventario {
                     COALESCE(SUM(COALESCE(i.stock_actual, 0)), 0)                          AS total_unidades,
                     SUM(CASE
                         WHEN COALESCE(i.stock_actual,0) > 0
-                         AND COALESCE(i.stock_actual,0) <= COALESCE(i.stcok_minimo,0)
+                         AND COALESCE(i.stock_actual,0) <= COALESCE(i.stock_minimo,0)
                         THEN 1 ELSE 0 END)                                                 AS stock_bajo,
                     SUM(CASE
                         WHEN COALESCE(i.stock_actual,0) = 0
@@ -99,9 +93,8 @@ class Inventario {
     }
 
     /**
-     * Actualiza stock_actual y stock_minimo (columna real: stcok_minimo)
-     * en la tabla inventario. Si el producto no tiene registro en
-     * inventario lo crea.
+     * Actualiza stock_actual y stock_minimo en la tabla inventario.
+     * Si el producto no tiene registro en inventario lo crea.
      *
      * @param int $id_producto
      * @param int $stock_actual  Nuevo valor de stock
@@ -122,14 +115,14 @@ class Inventario {
                 $stmt = $this->conn->prepare(
                     "UPDATE inventario
                      SET stock_actual        = :stock_actual,
-                         stcok_minimo        = :stock_minimo,
+                         stock_minimo        = :stock_minimo,
                          fecha_actualizacion = CURDATE()
                      WHERE id_producto = :id_producto"
                 );
             } else {
                 // Crear nuevo registro
                 $stmt = $this->conn->prepare(
-                    "INSERT INTO inventario (stock_actual, stcok_minimo, fecha_actualizacion, id_producto)
+                    "INSERT INTO inventario (stock_actual, stock_minimo, fecha_actualizacion, id_producto)
                      VALUES (:stock_actual, :stock_minimo, CURDATE(), :id_producto)"
                 );
             }
@@ -145,4 +138,3 @@ class Inventario {
         }
     }
 }
-?>
