@@ -1,4 +1,3 @@
-
 <?php
 session_start();
 if (!isset($_SESSION['usuario'])) { header("Location: ../usuarios/login.php"); exit; }
@@ -23,10 +22,13 @@ $productos = $ventaModel->obtenerProductos();
 $clientes  = $ventaModel->obtenerClientes(); // HU-017 HU-014: solo activos
 
 // Inventario para HU-015
+// obtenerTodos() del modelo Inventario devuelve stock_actual y stock_minimo
+// (columnas reales de la tabla inventario), NO "stock" ni un umbral fijo.
 $inventario  = $inventarioModel->obtenerTodos();
-$STOCK_MIN   = 5;
-$agotados    = array_filter($inventario, function($r){ return intval($r['stock']) == 0; });
-$bajStock    = array_filter($inventario, function($r) use ($STOCK_MIN){ return intval($r['stock']) > 0 && intval($r['stock']) <= $STOCK_MIN; });
+$agotados    = array_filter($inventario, function($r){ return intval($r['stock_actual']) == 0; });
+$bajStock    = array_filter($inventario, function($r){
+    return intval($r['stock_actual']) > 0 && intval($r['stock_actual']) <= intval($r['stock_minimo']);
+});
 
 // HU-016: Filtro de mis ventas por fecha
 $desdeV = $_GET['desde'] ?? '';
@@ -233,17 +235,17 @@ require_once __DIR__ . '/../layouts/sidebar_vendedor.php';
                         <tr class="border-b border-[#C9E4C5]">
                             <th class="pb-2 text-left text-xs font-bold text-[#4E6B4A] uppercase">Producto</th>
                             <th class="pb-2 text-left text-xs font-bold text-[#4E6B4A] uppercase">Categoria</th>
-                            <th class="pb-2 text-right text-xs font-bold text-[#4E6B4A] uppercase">Precio</th>
                             <th class="pb-2 text-center text-xs font-bold text-[#4E6B4A] uppercase">Stock</th>
                             <th class="pb-2 text-center text-xs font-bold text-[#4E6B4A] uppercase">Estado</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-[#f0f9ee]" id="tbodyInv">
                         <?php foreach ($inventario as $row):
-                            $stock = intval($row['stock']);
-                            if ($stock == 0)              { $est='agotado'; $sc='text-red-500'; }
-                            elseif ($stock <= $STOCK_MIN) { $est='bajo';    $sc='text-amber-500'; }
-                            else                          { $est='normal';  $sc='text-[#4A8C44]'; }
+                            $stock       = intval($row['stock_actual']);
+                            $stockMinimo = intval($row['stock_minimo']);
+                            if ($stock == 0)                { $est='agotado'; $sc='text-red-500'; }
+                            elseif ($stock <= $stockMinimo) { $est='bajo';    $sc='text-amber-500'; }
+                            else                             { $est='normal';  $sc='text-[#4A8C44]'; }
                         ?>
                         <tr class="hover:bg-[#f8fffe]"
                             data-estado="<?= $est ?>"
@@ -252,7 +254,6 @@ require_once __DIR__ . '/../layouts/sidebar_vendedor.php';
                             <?= $est !== 'normal' ? 'style="display:none"' : '' ?>>
                             <td class="py-2 font-semibold text-[#1C2E1A] truncate max-w-[130px]"><?= htmlspecialchars($row['producto']) ?></td>
                             <td class="py-2 text-[#4E6B4A] text-xs"><?= htmlspecialchars($row['categoria']??'Sin categoria') ?></td>
-                            <td class="py-2 text-right text-[#4E6B4A]">$<?= number_format($row['precio']??0,0,',','.') ?></td>
                             <td class="py-2 text-center font-extrabold <?= $sc ?>"><?= $stock ?></td>
                             <td class="py-2 text-center">
                                 <?php if ($est==='agotado'): ?>
@@ -354,6 +355,10 @@ require_once __DIR__ . '/../layouts/sidebar_vendedor.php';
     }
 
     // HU-014: Agregar producto con stock visible y limitado
+    // OJO: productosDisponibles ya NO trae "precio" (no existe en tu BD,
+    // el precio se digita por línea al vender). Este bloque solo limita
+    // cantidad por stock; el cálculo de subtotal con precio real está
+    // pendiente de ajustar en el paso siguiente.
     function agregarItem() {
         var container = document.getElementById('itemsContainer');
         var idx = itemCount++;
@@ -361,8 +366,8 @@ require_once __DIR__ . '/../layouts/sidebar_vendedor.php';
         productosDisponibles.forEach(function(p) {
             var stockLabel = p.stock > 0 ? ' [' + p.stock + ' uds.]' : ' [AGOTADO]';
             var disabled   = p.stock <= 0 ? ' disabled' : '';
-            options += '<option value="' + p.id_producto + '" data-precio="' + p.precio + '" data-stock="' + p.stock + '"' + disabled + '>' +
-                p.nombre + ' ($' + Number(p.precio).toLocaleString('es-CO') + ')' + stockLabel + '</option>';
+            options += '<option value="' + p.id_producto + '" data-stock="' + p.stock + '"' + disabled + '>' +
+                p.nombre + stockLabel + '</option>';
         });
         var div = document.createElement('div');
         div.className = 'item-row flex items-center gap-3';
@@ -383,16 +388,12 @@ require_once __DIR__ . '/../layouts/sidebar_vendedor.php';
         var select = document.querySelector('#item-' + idx + ' select');
         var cantInput = document.getElementById('cant-' + idx);
         var cant = parseInt(cantInput.value)||0;
-        var precio=0, stock=0;
+        var stock=0;
         if (select && select.selectedOptions[0]) {
-            precio = parseFloat(select.selectedOptions[0].dataset.precio)||0;
-            stock  = parseInt(select.selectedOptions[0].dataset.stock)||0;
+            stock = parseInt(select.selectedOptions[0].dataset.stock)||0;
         }
         if (cant > stock && stock > 0) { cantInput.value = stock; cant = stock; }
         cantInput.max = stock;
-        var sub = precio * cant;
-        document.getElementById('sub-'+idx).value = sub;
-        document.getElementById('sub-display-'+idx).textContent = '$' + sub.toLocaleString('es-CO');
         calcularTotal();
     }
 

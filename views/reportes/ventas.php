@@ -34,6 +34,9 @@ $margenGeneral  = $totalVendido > 0
     ? round(($totalGanancia / $totalVendido) * 100, 1)
     : 0;
 
+// Nombre de archivo sugerido para el PDF
+$nombreArchivoPDF = 'Reporte_Ventas_' . date('Y-m-d', strtotime($desde)) . '_a_' . date('Y-m-d', strtotime($hasta));
+
 $titulo = 'Reporte de Ventas';
 require_once __DIR__ . '/../layouts/header.php';
 require_once __DIR__ . '/../layouts/sidebar.php';
@@ -49,6 +52,7 @@ require_once __DIR__ . '/../layouts/sidebar.php';
         text-decoration:none;
     }
     .btn-primario:hover { background:#01614B;transform:translateY(-2px); }
+    .btn-primario:disabled { background:#9CA3AF;cursor:not-allowed;box-shadow:none;transform:none; }
     .btn-secundario {
         padding:9px 16px;border-radius:9px;border:1px solid #E5E7EB;background:#fff;
         color:#5F6673;font-size:.85rem;font-weight:600;text-decoration:none;
@@ -78,7 +82,13 @@ require_once __DIR__ . '/../layouts/sidebar.php';
         }
         .no-imprimir { display: none !important; }
         .kpi, .panel { break-inside: avoid; box-shadow: none !important; }
+        tr { break-inside: avoid; page-break-inside: avoid; }
+        thead { break-after: avoid; }
         .encabezado-impresion { display: block !important; margin-bottom: 16px; }
+
+        @page {
+            margin: 15mm 12mm;
+        }
     }
 </style>
 
@@ -113,7 +123,7 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                 <p class="text-sm mt-1" style="color:#5F6673;">Consulta las ventas realizadas y sus ganancias</p>
             </div>
         </div>
-        <button type="button" class="btn-primario" onclick="window.print()">
+        <button type="button" class="btn-primario" onclick="exportarPDF()" <?= empty($ventas) ? 'disabled title="No hay datos para exportar"' : '' ?>>
             <i class="fas fa-file-pdf" style="font-size:.85rem;"></i> Exportar a PDF
         </button>
     </div>
@@ -289,5 +299,18 @@ require_once __DIR__ . '/../layouts/sidebar.php';
     <?php endif; ?>
 
 </div>
+
+<script>
+    const tituloOriginal = document.title;
+
+    function exportarPDF() {
+        document.title = "<?= $nombreArchivoPDF ?>";
+        window.print();
+    }
+
+    window.onafterprint = function () {
+        document.title = tituloOriginal;
+    };
+</script>
 
 <?php require_once __DIR__ . '/../layouts/footer.php'; ?>

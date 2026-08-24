@@ -209,14 +209,15 @@ class Reporte {
         return $this->conn->query($sql)->fetch(PDO::FETCH_ASSOC);
     }
 
+    // ── Corregido: se quitó el filtro "WHERE estado = 1" porque
+    //    dejaba la lista vacía (la tabla `categoria` no tiene esa
+    //    columna, o ninguna fila tenía ese valor). También se
+    //    agregó el execute() que faltaba antes del fetchAll().
     public function listaCategorias() {
-        // NOTA: se asume categoria.estado numérico (1 = activa), igual
-        // que producto.estado y persona.estado en el resto del sistema.
-        // Si tu tabla `categoria` no tiene columna `estado`, quita la
-        // condición WHERE de abajo.
         $stmt = $this->conn->prepare(
-            "SELECT id_categoria, tipo FROM categoria WHERE estado = 1 ORDER BY tipo ASC"
+            "SELECT id_categoria, tipo FROM categoria ORDER BY tipo ASC"
         );
+        $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }

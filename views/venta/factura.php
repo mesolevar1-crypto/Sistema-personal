@@ -21,12 +21,15 @@ if (!$venta) {
 }
 
 $detalle = $ventaModel->obtenerDetalle($id_venta);
+
+// Nombre de archivo sugerido para el PDF
+$nombreArchivoPDF = 'Comprobante_' . ($venta['numero_factura'] ?? ('VENTA-' . $id_venta));
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Comprobante <?= htmlspecialchars($venta['numero_factura'] ?? ('VENTA-' . $id_venta)) ?></title>
+<title><?= htmlspecialchars($venta['numero_factura'] ?? ('VENTA-' . $id_venta)) ?></title>
 <style>
     * { box-sizing: border-box; }
     body {
@@ -109,6 +112,7 @@ $detalle = $ventaModel->obtenerDetalle($id_venta);
         body { background: #fff; padding: 0; }
         .acciones-comprobante { display: none; }
         .ticket { border: none; }
+        @page { margin: 5mm; }
     }
 </style>
 </head>
@@ -198,24 +202,14 @@ $detalle = $ventaModel->obtenerDetalle($id_venta);
     </div>
 
     <div class="acciones-comprobante">
-        <a href="index.php" class="btn-volver" onclick="return cerrarComprobante(event)">
-            ← Volver
-        </a>
-        <button class="btn-imprimir" onclick="window.print()">Imprimir / Guardar como PDF</button>
+        <a href="index.php" class="btn-volver">← Volver</a>
+        <button class="btn-imprimir" onclick="exportarPDF()">Exportar a PDF</button>
     </div>
 
     <script>
-        // Si esta página se abrió como ventana/pestaña emergente (window.open desde ventas.php),
-        // "Volver" simplemente la cierra para regresar a donde ya estabas.
-        // Si se abrió de forma directa (sin opener), navega normalmente a index.php.
-        function cerrarComprobante(e) {
-            e.preventDefault();
-            if (window.opener && !window.opener.closed) {
-                window.close();
-            } else {
-                window.location.href = 'index.php';
-            }
-            return false;
+        function exportarPDF() {
+            document.title = "<?= $nombreArchivoPDF ?>";
+            window.print();
         }
     </script>
 

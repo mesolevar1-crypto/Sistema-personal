@@ -147,6 +147,25 @@ class Venta
     }
 
     // =========================================================
+    // ALIAS: obtenerProductos()
+    // Agregado porque views/dashboard/vendedor.php llama a este
+    // nombre. No se tocó obtenerProductosDisponibles() para no
+    // romper nada que ya lo esté usando en otras vistas.
+    //
+    // OJO: esto NO trae "precio", porque en tu esquema real el
+    // precio no vive en producto ni en inventario, se digita por
+    // línea al momento de vender. El modal de "Nueva Venta" del
+    // dashboard del vendedor asume un campo p.precio que no existe
+    // en tu BD, así que el JS que lee data-precio del <option>
+    // seguirá mostrando $0 hasta que ajustemos ese modal para que
+    // el precio se digite (como ya hace tu método registrar()).
+    // =========================================================
+    public function obtenerProductos()
+    {
+        return $this->obtenerProductosDisponibles();
+    }
+
+    // =========================================================
     // UNIDADES DE MEDIDA (para los selects de unidad / contenido)
     // =========================================================
     public function obtenerUnidades()

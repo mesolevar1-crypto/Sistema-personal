@@ -32,6 +32,9 @@ $totalRegistros = count($compras);
 $totalValor     = array_sum(array_column($compras, 'total'));
 $promedio       = $totalRegistros > 0 ? $totalValor / $totalRegistros : 0;
 
+// Nombre de archivo sugerido para cuando el usuario guarde el PDF
+$nombreArchivoPDF = 'Reporte_Compras_' . date('Y-m-d', strtotime($desde)) . '_a_' . date('Y-m-d', strtotime($hasta));
+
 $titulo = 'Reporte de Compras';
 require_once __DIR__ . '/../layouts/header.php';
 require_once __DIR__ . '/../layouts/sidebar.php';
@@ -75,8 +78,17 @@ require_once __DIR__ . '/../layouts/sidebar.php';
             position: absolute; left: 0; top: 0; width: 100%; padding: 10px;
         }
         .no-imprimir { display: none !important; }
-        .kpi, .panel { break-inside: avoid; box-shadow: none !important; }
+
+        /* Evitar que las filas y bloques se corten feo entre páginas */
+        tr, .kpi, .panel { break-inside: avoid; page-break-inside: avoid; }
+        thead { break-after: avoid; }
+
         .encabezado-impresion { display: block !important; margin-bottom: 16px; }
+
+        /* Márgenes de página al imprimir/exportar */
+        @page {
+            margin: 15mm 12mm;
+        }
     }
 </style>
 
@@ -111,7 +123,7 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                 <p class="text-sm mt-1" style="color:#5F6673;">Consulta las compras realizadas a tus proveedores</p>
             </div>
         </div>
-        <button type="button" class="btn-primario" onclick="window.print()">
+        <button type="button" class="btn-primario" onclick="exportarPDF()" <?= empty($compras) ? 'disabled title="No hay datos para exportar"' : '' ?>>
             <i class="fas fa-file-pdf" style="font-size:.85rem;"></i> Exportar a PDF
         </button>
     </div>
@@ -245,5 +257,21 @@ require_once __DIR__ . '/../layouts/sidebar.php';
     <?php endif; ?>
 
 </div>
+
+<script>
+    // Guarda el título original para restaurarlo después de exportar
+    const tituloOriginal = document.title;
+
+    function exportarPDF() {
+        // Cambia el título temporalmente: el navegador lo usa como nombre sugerido del PDF
+        document.title = "<?= $nombreArchivoPDF ?>";
+        window.print();
+    }
+
+    // Restaura el título normal cuando termina el diálogo de impresión
+    window.onafterprint = function () {
+        document.title = tituloOriginal;
+    };
+</script>
 
 <?php require_once __DIR__ . '/../layouts/footer.php'; ?>
