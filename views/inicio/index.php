@@ -2,8 +2,8 @@
 // ============================================================
 // Vista: Inicio del Administrador
 // Acceso: Solo Administrador
-// Función: Panel principal con tarjetas de resumen.
-//          Los valores se conectarán módulo por módulo.
+// Función: Panel principal con tarjetas de resumen conectadas
+//          a datos reales de la base de datos (bdventas).
 // ============================================================
 
 session_start();
@@ -14,77 +14,64 @@ if (!isset($_SESSION['usuario']) || $_SESSION['usuario']['rol'] !== 'Administrad
 }
 
 $titulo = "Panel de Inicio - Administrador";
+
+// ── Conexión y modelo ────────────────────────────────────────
+require_once __DIR__ . '/../../config/databse.php';
+require_once __DIR__ . '/../../models/inicio.php';
+
+$database = new Database();
+$conn     = $database->conectar();
+$inicio   = new Inicio($conn);
+
 require_once __DIR__ . '/../layouts/header.php';
 require_once __DIR__ . '/../layouts/sidebar.php';
 
 // Nombre del usuario autenticado para el saludo
 $nombreUsuario = htmlspecialchars($_SESSION['usuario']['nombre']);
 
-// ── Valores de las tarjetas ──────────────────────────────────
-// Cada variable se inicializa en "--".
-// Cuando se desarrolle el módulo correspondiente,
-// se reemplazará esta línea por la consulta real.
+// ── Valores reales de las tarjetas ───────────────────────────
+$ventasDiaRaw       = $inicio->ventasDia();
+$ventasMesRaw       = $inicio->ventasMes();
+$gananciasSemanaRaw = $inicio->gananciasSemana();
+$stockBajo          = $inicio->stockBajo();
+$totalProductos     = $inicio->totalProductos();
+$totalUsuarios      = $inicio->totalUsuarios();
 
-$ventasDia     = "--";   // Se conectará con: módulo Ventas
-$ventasMes     = "--";   // Se conectará con: módulo Ventas
-$gananciasSemana = "--"; // Se conectará con: módulo Ganancias
-$stockBajo     = "--";   // Se conectará con: módulo Inventario
-$totalProductos = "--";  // Se conectará con: módulo Productos
+$cantVentasHoy = $inicio->contarVentasHoy();
+$cantVentasMes = $inicio->contarVentasMes();
+
+$ventas7Dias = $inicio->ventasUltimos7Dias(); // ['2026-08-17' => 125000.0, ...]
+$masVendidos = $inicio->productosMasVendidos(5);
+
+// ── Formateador de moneda (pesos, sin decimales) ─────────────
+function formatoMoneda($valor)
+{
+    return '$' . number_format((float) $valor, 0, ',', '.');
+}
+
+$ventasDia        = formatoMoneda($ventasDiaRaw);
+$ventasMes        = formatoMoneda($ventasMesRaw);
+$gananciasSemana  = formatoMoneda($gananciasSemanaRaw);
+
+// Datos listos para la gráfica (JS)
+$etiquetasDias = array_map(function ($fecha) {
+    // Ej: "vie 21"
+    $dias = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    $ts   = strtotime($fecha);
+    return $dias[(int) date('w', $ts)] . ' ' . date('d', $ts);
+}, array_keys($ventas7Dias));
+
+$valoresDias = array_values($ventas7Dias);
 ?>
 
 <!-- ── Estilos locales del Inicio ── -->
 <style>
-    /* Tarjeta de resumen */
-    .tarjeta-resumen {
-        background: #ffffff;
-        border: 1px solid #E5E7EB;
-        border-radius: 16px;
-        padding: 24px;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        transition: box-shadow 0.2s, transform 0.2s;
+    /* Tarjeta KPI — mismo estilo que la vista de Reportes */
+    .kpi {
+        background:#fff; border:1px solid #E5E7EB; border-radius:14px;
+        padding:20px; transition:transform .18s,box-shadow .18s;
     }
-    .tarjeta-resumen:hover {
-        box-shadow: 0 8px 24px rgba(0,135,95,0.10);
-        transform: translateY(-3px);
-    }
-    .tarjeta-icono {
-        width: 48px;
-        height: 48px;
-        border-radius: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.3rem;
-        margin-bottom: 4px;
-    }
-    .tarjeta-valor {
-        font-size: 2rem;
-        font-weight: 800;
-        color: #171717;
-        line-height: 1;
-        font-family: 'DM Serif Display', serif;
-    }
-    .tarjeta-valor.sin-datos {
-        font-size: 1.6rem;
-        color: #9CA3AF;
-        font-family: 'Outfit', sans-serif;
-        font-weight: 600;
-    }
-    .tarjeta-label {
-        font-size: 0.8rem;
-        font-weight: 700;
-        color: #5F6673;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    .tarjeta-pendiente {
-        font-size: 0.75rem;
-        color: #9CA3AF;
-        font-style: italic;
-        margin-top: 2px;
-    }
+    .kpi:hover { transform:translateY(-3px); box-shadow:0 8px 24px rgba(0,135,95,.12); border-color:#61D0A7; }
 
     /* Sección de panel grande */
     .panel-grande {
@@ -106,7 +93,7 @@ $totalProductos = "--";  // Se conectará con: módulo Productos
         color: #171717;
     }
     .panel-body {
-        padding: 32px 24px;
+        padding: 24px;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -173,6 +160,52 @@ $totalProductos = "--";  // Se conectará con: módulo Productos
         margin-top: 8px;
         padding-left: 2px;
     }
+
+    /* Lista de más vendidos */
+    .lista-vendidos {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .item-vendido {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 4px;
+        border-bottom: 1px solid #F3F4F6;
+    }
+    .item-vendido:last-child {
+        border-bottom: none;
+    }
+    .item-vendido .rank {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        background: #F3F4F6;
+        color: #5F6673;
+        font-size: 0.7rem;
+        font-weight: 800;
+        margin-right: 10px;
+    }
+    .item-vendido .nombre {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #171717;
+        text-align: left;
+        flex: 1;
+    }
+    .item-vendido .cantidad {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #00875F;
+        background: #DDF5EC;
+        border-radius: 20px;
+        padding: 2px 10px;
+    }
 </style>
 
 <!-- ════════════════════════════════════════════
@@ -186,78 +219,94 @@ $totalProductos = "--";  // Se conectará con: módulo Productos
             Bienvenido, <?= $nombreUsuario ?> 👋
         </h2>
         <p class="text-[#5F6673] mt-1 text-sm">
-            Aquí tienes el resumen general del sistema. Los datos se activarán conforme se desarrollen los módulos.
+            Aquí tienes el resumen general del sistema, actualizado en tiempo real.
         </p>
     </div>
 
 
     <!-- ════════════════
-         FILA 1 — 5 tarjetas de resumen
+         RESUMEN — 6 tarjetas KPI (3 arriba, 3 abajo)
     ════════════════ -->
     <p class="seccion-titulo">Resumen general</p>
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
+    <div class="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
 
         <!-- Ventas del día -->
-        <div class="tarjeta-resumen">
-            <div class="tarjeta-icono" style="background:#DDF5EC;">
-                <i class="fas fa-cash-register" style="color:#00875F;"></i>
+        <div class="kpi">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <div style="width:38px;height:38px;background:#DDF5EC;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-cash-register" style="color:#00875F;font-size:.9rem;"></i>
+                </div>
+                <span style="font-size:.72rem;font-weight:700;color:#5F6673;text-transform:uppercase;letter-spacing:.04em;">Ventas del día</span>
             </div>
-            <p class="tarjeta-label">Ventas del día</p>
-            <p class="tarjeta-valor <?= $ventasDia === '--' ? 'sin-datos' : '' ?>">
-                <?= $ventasDia ?>
-            </p>
+            <p style="font-size:1.5rem;font-weight:800;color:#00875F;line-height:1;"><?= $ventasDia ?></p>
+            <p style="font-size:.72rem;color:#9CA3AF;margin-top:4px;"><?= $cantVentasHoy ?> venta(s) hoy</p>
         </div>
 
         <!-- Ventas del mes -->
-        <div class="tarjeta-resumen">
-            <div class="tarjeta-icono" style="background:#DDF5EC;">
-                <i class="fas fa-calendar-alt" style="color:#00875F;"></i>
+        <div class="kpi">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <div style="width:38px;height:38px;background:#DDF5EC;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-calendar-alt" style="color:#00875F;font-size:.9rem;"></i>
+                </div>
+                <span style="font-size:.72rem;font-weight:700;color:#5F6673;text-transform:uppercase;letter-spacing:.04em;">Ventas del mes</span>
             </div>
-            <p class="tarjeta-label">Ventas del mes</p>
-            <p class="tarjeta-valor <?= $ventasMes === '--' ? 'sin-datos' : '' ?>">
-                <?= $ventasMes ?>
-            </p>
+            <p style="font-size:1.5rem;font-weight:800;color:#00875F;line-height:1;"><?= $ventasMes ?></p>
+            <p style="font-size:.72rem;color:#9CA3AF;margin-top:4px;"><?= $cantVentasMes ?> venta(s) este mes</p>
         </div>
 
         <!-- Ganancias de la semana -->
-        <div class="tarjeta-resumen">
-            <div class="tarjeta-icono" style="background:#fffbeb;">
-                <i class="fas fa-chart-line" style="color:#FFB51B;"></i>
+        <div class="kpi">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <div style="width:38px;height:38px;background:#fffbeb;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-chart-line" style="color:#FFB51B;font-size:.9rem;"></i>
+                </div>
+                <span style="font-size:.72rem;font-weight:700;color:#5F6673;text-transform:uppercase;letter-spacing:.04em;">Ganancias semana</span>
             </div>
-            <p class="tarjeta-label">Ganancias semana</p>
-            <p class="tarjeta-valor <?= $gananciasSemana === '--' ? 'sin-datos' : '' ?>">
-                <?= $gananciasSemana ?>
-            </p>
+            <p style="font-size:1.5rem;font-weight:800;color:#FFB51B;line-height:1;"><?= $gananciasSemana ?></p>
+            <p style="font-size:.72rem;color:#9CA3AF;margin-top:4px;">ganancia neta estimada</p>
         </div>
 
         <!-- Stock bajo -->
-        <div class="tarjeta-resumen">
-            <div class="tarjeta-icono" style="background:#fde8e8;">
-                <i class="fas fa-exclamation-triangle" style="color:#E53935;"></i>
+        <div class="kpi" style="border-color:<?= $stockBajo > 0 ? '#FFB51B' : '#E5E7EB' ?>;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <div style="width:38px;height:38px;background:#fffbeb;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-exclamation-triangle" style="color:#FFB51B;font-size:.9rem;"></i>
+                </div>
+                <span style="font-size:.72rem;font-weight:700;color:#5F6673;text-transform:uppercase;letter-spacing:.04em;">Stock bajo</span>
             </div>
-            <p class="tarjeta-label">Stock bajo</p>
-            <p class="tarjeta-valor <?= $stockBajo === '--' ? 'sin-datos' : '' ?>">
-                <?= $stockBajo ?>
-            </p>
+            <p style="font-size:1.8rem;font-weight:800;color:<?= $stockBajo > 0 ? '#FFB51B' : '#171717' ?>;line-height:1;"><?= $stockBajo ?></p>
+            <p style="font-size:.72rem;color:#9CA3AF;margin-top:4px;">producto(s) con poco stock</p>
         </div>
 
         <!-- Total de productos -->
-        <div class="tarjeta-resumen">
-            <div class="tarjeta-icono" style="background:#EBF5FF;">
-                <i class="fas fa-box-open" style="color:#1F3552;"></i>
+        <div class="kpi">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <div style="width:38px;height:38px;background:#EBF5FF;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-box-open" style="color:#1F3552;font-size:.9rem;"></i>
+                </div>
+                <span style="font-size:.72rem;font-weight:700;color:#5F6673;text-transform:uppercase;letter-spacing:.04em;">Total productos</span>
             </div>
-            <p class="tarjeta-label">Total productos</p>
-            <p class="tarjeta-valor <?= $totalProductos === '--' ? 'sin-datos' : '' ?>">
-                <?= $totalProductos ?>
-            </p>
-            
+            <p style="font-size:1.8rem;font-weight:800;color:#171717;line-height:1;"><?= $totalProductos ?></p>
+            <p style="font-size:.72rem;color:#9CA3AF;margin-top:4px;">producto(s) activos</p>
+        </div>
+
+        <!-- Total de usuarios registrados -->
+        <div class="kpi">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <div style="width:38px;height:38px;background:#EDE9FE;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-users" style="color:#6D28D9;font-size:.9rem;"></i>
+                </div>
+                <span style="font-size:.72rem;font-weight:700;color:#5F6673;text-transform:uppercase;letter-spacing:.04em;">Usuarios registrados</span>
+            </div>
+            <p style="font-size:1.8rem;font-weight:800;color:#171717;line-height:1;"><?= $totalUsuarios ?></p>
+            <p style="font-size:.72rem;color:#9CA3AF;margin-top:4px;">usuario(s) activos en el sistema</p>
         </div>
 
     </div>
 
 
     <!-- ════════════════
-         FILA 2 — Gráfica de ventas + Productos más vendidos
+         Gráfica de ventas + Productos más vendidos
     ════════════════ -->
     <p class="seccion-titulo">Análisis de ventas</p>
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-8">
@@ -266,16 +315,12 @@ $totalProductos = "--";  // Se conectará con: módulo Productos
         <div class="panel-grande lg:col-span-2">
             <div class="panel-header">
                 <h3><i class="fas fa-chart-bar mr-2" style="color:#00875F;"></i>Ventas — últimos 7 días</h3>
-                <span class="badge-aviso">
-                    <i class="fas fa-clock text-[10px]"></i> Pendiente
+                <span class="badge-ok">
+                    <i class="fas fa-check-circle text-[10px]"></i> En vivo
                 </span>
             </div>
-            <div class="panel-body">
-                <div class="panel-vacio-icono">
-                    <i class="fas fa-chart-bar"></i>
-                </div>
-                <p>Sin datos disponibles</p>
-                <span>Se activará al desarrollar el módulo de Ventas</span>
+            <div class="panel-body" style="min-height:260px; align-items:stretch;">
+                <canvas id="graficaVentas7Dias" height="90"></canvas>
             </div>
         </div>
 
@@ -283,22 +328,76 @@ $totalProductos = "--";  // Se conectará con: módulo Productos
         <div class="panel-grande">
             <div class="panel-header">
                 <h3><i class="fas fa-fire mr-2" style="color:#E53935;"></i>Más vendidos</h3>
-                <span class="badge-aviso">
-                    <i class="fas fa-clock text-[10px]"></i> Pendiente
+                <span class="badge-ok">
+                    <i class="fas fa-check-circle text-[10px]"></i> En vivo
                 </span>
             </div>
             <div class="panel-body">
-                <div class="panel-vacio-icono">
-                    <i class="fas fa-box-open"></i>
-                </div>
-                <p>Sin datos disponibles</p>
-                <span>Se activará al desarrollar el módulo de Ventas</span>
+                <?php if (empty($masVendidos)): ?>
+                    <div class="panel-vacio-icono">
+                        <i class="fas fa-box-open"></i>
+                    </div>
+                    <p>Sin ventas registradas aún</p>
+                    <span>Aparecerán aquí en cuanto se registren ventas</span>
+                <?php else: ?>
+                    <div class="lista-vendidos">
+                        <?php foreach ($masVendidos as $i => $p): ?>
+                            <div class="item-vendido">
+                                <span class="rank"><?= $i + 1 ?></span>
+                                <span class="nombre"><?= htmlspecialchars($p['nombre']) ?></span>
+                                <span class="cantidad"><?= (int) $p['cantidad_vendida'] ?> und</span>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 
     </div>
 
 
-    
-
 <?php require_once __DIR__ . '/../layouts/footer.php'; ?>
+
+<!-- ── Chart.js (solo se usa aquí) ── -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+    const ctxVentas = document.getElementById('graficaVentas7Dias');
+
+    new Chart(ctxVentas, {
+        type: 'bar',
+        data: {
+            labels: <?= json_encode($etiquetasDias, JSON_UNESCAPED_UNICODE) ?>,
+            datasets: [{
+                label: 'Ventas',
+                data: <?= json_encode($valoresDias) ?>,
+                backgroundColor: '#00875F',
+                borderRadius: 6,
+                maxBarThickness: 42
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) {
+                            return '$' + Number(context.raw).toLocaleString('es-CO');
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function (value) {
+                            return '$' + Number(value).toLocaleString('es-CO');
+                        }
+                    }
+                }
+            }
+        }
+    });
+</script>

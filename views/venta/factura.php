@@ -198,11 +198,26 @@ $detalle = $ventaModel->obtenerDetalle($id_venta);
     </div>
 
     <div class="acciones-comprobante">
-        <a href="index.php" class="btn-volver">
+        <a href="index.php" class="btn-volver" onclick="return cerrarComprobante(event)">
             ← Volver
         </a>
         <button class="btn-imprimir" onclick="window.print()">Imprimir / Guardar como PDF</button>
     </div>
+
+    <script>
+        // Si esta página se abrió como ventana/pestaña emergente (window.open desde ventas.php),
+        // "Volver" simplemente la cierra para regresar a donde ya estabas.
+        // Si se abrió de forma directa (sin opener), navega normalmente a index.php.
+        function cerrarComprobante(e) {
+            e.preventDefault();
+            if (window.opener && !window.opener.closed) {
+                window.close();
+            } else {
+                window.location.href = 'index.php';
+            }
+            return false;
+        }
+    </script>
 
 </body>
 </html>

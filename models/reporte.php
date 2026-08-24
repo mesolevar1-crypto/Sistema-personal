@@ -1,8 +1,16 @@
 <?php
 /**
  * Modelo Reporte
- * Usa la BD real: usuarios (no usuario), productos_precio (no producto_precios),
- * persona.estado ('activo'/'inactivo'), sin producto.precio ni producto.stock
+ *
+ * Corregido para usar la BD real (verificada contra Compra y Venta):
+ *   - Tabla `usuario` (singular), no `usuarios`.
+ *   - `persona.estado`, `venta.estado`, `categoria.estado` son
+ *     numéricos (1 = activo, 0 = inactivo/anulado), no texto.
+ *   - No existe tabla `productos_precio`. La ganancia por línea de
+ *     venta se calcula igual que en Venta::obtenerTodas():
+ *         detalle_venta.subtotal - (detalle_venta.costo_unitario * detalle_venta.cantidad)
+ *     Esto garantiza que los reportes muestren EXACTAMENTE los
+ *     mismos números que el módulo de Ventas.
  */
 class Reporte {
 
@@ -16,7 +24,7 @@ class Reporte {
 
     public function ventasHoy() {
         $sql = "SELECT COALESCE(SUM(total), 0) AS valor, COUNT(*) AS cantidad
-                FROM venta WHERE fecha = CURDATE() AND estado = 'activa'";
+                FROM venta WHERE fecha = CURDATE() AND estado = 1";
         return $this->conn->query($sql)->fetch(PDO::FETCH_ASSOC);
     }
 
@@ -25,11 +33,14 @@ class Reporte {
                 FROM venta
                 WHERE YEAR(fecha) = YEAR(CURDATE())
                   AND MONTH(fecha) = MONTH(CURDATE())
-                  AND estado = 'activa'";
+                  AND estado = 1";
         return $this->conn->query($sql)->fetch(PDO::FETCH_ASSOC);
     }
 
     public function comprasMes() {
+        // `compra` no tiene concepto de "anulada": Compra::eliminar()
+        // borra la fila físicamente, así que no hace falta filtrar
+        // por estado -- lo que existe en la tabla ya está vigente.
         $sql = "SELECT COALESCE(SUM(total), 0) AS valor, COUNT(*) AS cantidad
                 FROM compra
                 WHERE YEAR(fecha) = YEAR(CURDATE())
@@ -39,26 +50,20 @@ class Reporte {
 
     /**
      * Ganancias del mes.
-     * Fórmula por línea:
-     *   Si unidad_compra = unidad_venta: ganancia = (precio_venta - precio_compra) × cantidad
-     *   Si unidad_compra ≠ unidad_venta: ganancia = (precio_venta - precio_compra/unidades_por_presentacion) × cantidad
+     * Misma fórmula por línea que usa Venta::obtenerTodas():
+     *   ganancia_linea = subtotal - (costo_unitario * cantidad)
      */
     public function gananciasMes() {
-        $sql = "SELECT COALESCE(SUM(
-                    dv.cantidad * (
-                        pp.precio_venta - CASE
-                            WHEN pp.id_unidad_compra = pp.id_unidad_venta THEN pp.precio_compra
-                            ELSE ROUND(pp.precio_compra / pp.unidades_por_presentacion, 2)
-                        END
-                    )
-                ), 0) AS valor
+        $sql = "SELECT COALESCE(SUM(dv.subtotal - (dv.costo_unitario * dv.cantidad)), 0) AS valor
                 FROM detalle_venta dv
-                INNER JOIN venta            v  ON dv.id_venta  = v.id_venta
-                INNER JOIN productos_precio pp ON dv.id_precio = pp.id_precio
+                INNER JOIN venta v ON dv.id_venta = v.id_venta
                 WHERE YEAR(v.fecha) = YEAR(CURDATE())
                   AND MONTH(v.fecha) = MONTH(CURDATE())
-                  AND v.estado = 'activa'";
-        ;
+                  AND v.estado = 1";
+
+        $stmt = $this->conn->prepare($sql);
+        $stmt->execute();
+        return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
     public function contarStockBajo() {
@@ -85,7 +90,7 @@ class Reporte {
                 FROM compra c
                 LEFT JOIN proveedor  pr      ON c.id_proveedor = pr.id_proveedor
                 LEFT JOIN persona    pe_prov ON pr.id_persona  = pe_prov.id_persona
-                LEFT JOIN usuarios   u       ON c.id_usuario   = u.id_usuario
+                LEFT JOIN usuario    u       ON c.id_usuario   = u.id_usuario
                 LEFT JOIN persona    pe_usr  ON u.id_persona   = pe_usr.id_persona
                 WHERE c.fecha BETWEEN :desde AND :hasta";
         if ($idProv > 0) $sql .= " AND c.id_proveedor = :idprov";
@@ -102,7 +107,7 @@ class Reporte {
     public function listaProveedores() {
         $sql = "SELECT pr.id_proveedor, pe.nombre
                 FROM proveedor pr INNER JOIN persona pe ON pr.id_persona = pe.id_persona
-                WHERE pe.estado = 'activo' ORDER BY pe.nombre ASC";
+                WHERE pe.estado = 1 ORDER BY pe.nombre ASC";
         $stmt = $this->conn->prepare($sql);
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -119,27 +124,18 @@ class Reporte {
                     pc.nombre  AS cliente,
                     pu.nombre  AS vendedor,
                     COALESCE((
-                        SELECT SUM(
-                            dv2.cantidad * (
-                                pp2.precio_venta - CASE
-                                    WHEN pp2.id_unidad_compra = pp2.id_unidad_venta
-                                         THEN pp2.precio_compra
-                                    ELSE ROUND(pp2.precio_compra / pp2.unidades_por_presentacion, 2)
-                                END
-                            )
-                        )
+                        SELECT SUM(dv2.subtotal - (dv2.costo_unitario * dv2.cantidad))
                         FROM detalle_venta dv2
-                        INNER JOIN productos_precio pp2 ON dv2.id_precio = pp2.id_precio
                         WHERE dv2.id_venta = v.id_venta
                     ), 0) AS ganancia
                 FROM venta v
                 LEFT JOIN cliente  c  ON v.id_cliente = c.id_cliente
                 LEFT JOIN persona  pc ON c.id_persona = pc.id_persona
-                LEFT JOIN usuarios u  ON v.id_usuario = u.id_usuario
+                LEFT JOIN usuario  u  ON v.id_usuario = u.id_usuario
                 LEFT JOIN persona  pu ON u.id_persona = pu.id_persona
                 LEFT JOIN factura  f  ON f.id_venta   = v.id_venta
                 WHERE v.fecha BETWEEN :desde AND :hasta
-                  AND v.estado = 'activa'";
+                  AND v.estado = 1";
         if ($idUsuario > 0) $sql .= " AND v.id_usuario = :idusuario";
         $sql .= " ORDER BY v.fecha DESC";
 
@@ -153,7 +149,7 @@ class Reporte {
 
     public function listaUsuarios() {
         $sql = "SELECT u.id_usuario, p.nombre
-                FROM usuarios u INNER JOIN persona p ON u.id_persona = p.id_persona
+                FROM usuario u INNER JOIN persona p ON u.id_persona = p.id_persona
                 ORDER BY p.nombre ASC";
         $stmt = $this->conn->prepare($sql);
         $stmt->execute();
@@ -214,11 +210,13 @@ class Reporte {
     }
 
     public function listaCategorias() {
+        // NOTA: se asume categoria.estado numérico (1 = activa), igual
+        // que producto.estado y persona.estado en el resto del sistema.
+        // Si tu tabla `categoria` no tiene columna `estado`, quita la
+        // condición WHERE de abajo.
         $stmt = $this->conn->prepare(
-            "SELECT id_categoria, tipo FROM categoria WHERE estado = 'activo' ORDER BY tipo ASC"
+            "SELECT id_categoria, tipo FROM categoria WHERE estado = 1 ORDER BY tipo ASC"
         );
-        $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }
-?>

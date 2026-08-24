@@ -40,6 +40,13 @@ require_once __DIR__ . '/../layouts/sidebar.php';
         text-decoration:none;
     }
     .btn-primario:hover { background:#01614B;transform:translateY(-2px); }
+    .btn-secundario {
+        padding:9px 16px;border-radius:9px;border:1px solid #E5E7EB;background:#fff;
+        color:#5F6673;font-size:.85rem;font-weight:600;text-decoration:none;
+        display:inline-flex;align-items:center;gap:5px;cursor:pointer;
+        font-family:'Outfit',sans-serif;transition:background .15s,border-color .15s;
+    }
+    .btn-secundario:hover { background:#F8F8F8;border-color:#00875F;color:#00875F; }
     .campo-input {
         background:#fff;border:1.5px solid #E5E7EB;border-radius:10px;
         color:#171717;font-family:'Outfit',sans-serif;font-size:.9rem;
@@ -61,12 +68,44 @@ require_once __DIR__ . '/../layouts/sidebar.php';
     .filtro-link.f-disp     { background:#00875F;border-color:#00875F;color:#fff; }
     .filtro-link.f-bajo     { background:#FFB51B;border-color:#FFB51B;color:#fff; }
     .filtro-link.f-agot     { background:#E53935;border-color:#E53935;color:#fff; }
+
+    /* ===== Exportar a PDF (misma pestaña, sin abrir ventanas nuevas) ===== */
+    .encabezado-impresion { display:none; }
+
+    @media print {
+        body * { visibility: hidden; }
+        #reporteImprimir, #reporteImprimir * { visibility: visible; }
+        #reporteImprimir {
+            position: absolute; left: 0; top: 0; width: 100%; padding: 10px;
+        }
+        .no-imprimir { display: none !important; }
+        .kpi, .panel { break-inside: avoid; box-shadow: none !important; }
+        .encabezado-impresion { display: block !important; margin-bottom: 16px; }
+    }
 </style>
 
-<div class="max-w-7xl mx-auto font-sans-ventanet">
+<div class="max-w-7xl mx-auto font-sans-ventanet" id="reporteImprimir">
+
+    <!-- Encabezado solo visible al imprimir/exportar -->
+    <div class="encabezado-impresion">
+        <h2 style="font-size:1.4rem;font-weight:800;color:#01614B;">VentaNet — Reporte de Inventario</h2>
+        <p style="font-size:.8rem;color:#5F6673;">
+            <?= $buscar ? 'Filtro: "' . htmlspecialchars($buscar) . '" · ' : '' ?>
+            <?php if ($idCat > 0):
+                foreach ($categorias as $cat) {
+                    if ($cat['id_categoria'] == $idCat) {
+                        echo 'Categoría: ' . htmlspecialchars($cat['tipo']) . ' · ';
+                        break;
+                    }
+                }
+            endif; ?>
+            <?= $estado ? 'Estado: ' . htmlspecialchars($estado) . ' · ' : '' ?>
+            Generado: <?= date('d/m/Y H:i') ?>
+        </p>
+    </div>
 
     <!-- Encabezado -->
-    <div class="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+    <div class="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4 no-imprimir">
         <div style="display:flex;align-items:center;gap:12px;">
             <a href="index.php"
                style="padding:8px 14px;border-radius:9px;border:1px solid #E5E7EB;background:#fff;color:#00875F;font-size:.82rem;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:5px;">
@@ -77,6 +116,9 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                 <p class="text-sm mt-1" style="color:#5F6673;">Consulta el estado actual de tu inventario</p>
             </div>
         </div>
+        <button type="button" class="btn-primario" onclick="window.print()">
+            <i class="fas fa-file-pdf" style="font-size:.85rem;"></i> Exportar a PDF
+        </button>
     </div>
 
     <!-- KPIs reales -->
@@ -127,7 +169,7 @@ require_once __DIR__ . '/../layouts/sidebar.php';
     </div>
 
     <!-- Filtros: buscador + categoría via GET -->
-    <form method="GET" class="panel mb-4">
+    <form method="GET" class="panel mb-4 no-imprimir">
         <div class="panel-head">
             <h3 style="font-size:.88rem;font-weight:700;color:#171717;display:flex;align-items:center;gap:8px;">
                 <i class="fas fa-filter" style="color:#00875F;"></i> Filtros
@@ -162,15 +204,14 @@ require_once __DIR__ . '/../layouts/sidebar.php';
             <button type="submit" class="btn-primario">
                 <i class="fas fa-search" style="font-size:.8rem;"></i> Buscar
             </button>
-            <a href="inventario.php"
-               style="padding:9px 16px;border-radius:9px;border:1px solid #E5E7EB;background:#fff;color:#5F6673;font-size:.85rem;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:5px;">
+            <a href="inventario.php" class="btn-secundario">
                <i class="fas fa-times" style="font-size:.75rem;"></i> Limpiar
             </a>
         </div>
     </form>
 
     <!-- Filtros de estado (links GET) -->
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;" class="no-imprimir">
         <a href="?buscar=<?= urlencode($buscar) ?>&id_categoria=<?= $idCat ?>"
            class="filtro-link <?= $estado === '' ? 'f-todos' : '' ?>">Todos</a>
         <a href="?buscar=<?= urlencode($buscar) ?>&id_categoria=<?= $idCat ?>&estado=disponible"
