@@ -7,121 +7,207 @@
 //          tiene acceso: Inicio, Ventas, Clientes, Productos
 //          e Inventario (solo lectura).
 //          También renderiza el header superior con nombre,
-//          rol y botón de cierre de sesión.
+//          rol y menú desplegable de usuario.
+//
+// Estilo alineado al sidebar del Administrador (mismos colores
+// y componentes: sidebar #01614B, ítem activo #00875F, header
+// blanco con dropdown de usuario) para que ambos paneles se
+// vean como parte del mismo sistema.
 // ============================================================
 
 // Datos del usuario autenticado desde la sesión
-$rol    = $_SESSION['usuario']['rol'];
-$nombre = $_SESSION['usuario']['nombre'];
-$rolDisplay = htmlspecialchars(ucfirst($rol)); // Capitalizar el rol para mostrar
+$rol        = $_SESSION['usuario']['rol']    ?? '';
+$nombre     = $_SESSION['usuario']['nombre'] ?? '';
+$rolDisplay = htmlspecialchars(ucfirst($rol));
+
+// Detección de página activa
+$self = $_SERVER['PHP_SELF'];
+
+$enInicio      = strpos($self, 'vendedor.php')       !== false;
+$enVenta       = strpos($self, '/vendedor/ventas')   !== false;
+$enClientes    = strpos($self, 'clientes')            !== false;
+$enProductos   = strpos($self, 'productos')            !== false;
+$enInventario  = strpos($self, 'inventario')            !== false;
 ?>
 
-<!-- ── Sidebar de navegación del Vendedor ── -->
-<aside class="w-[260px] min-w-[260px] bg-[#4A8C44] text-white shadow-xl flex flex-col relative z-20">
+<style>
+    /* ── Sidebar (mismos estilos que el panel de Administrador) ── */
+    .nav-item {
+        color: rgba(255,255,255,.80);
+        transition: background .18s, color .18s;
+        position: relative; overflow: hidden;
+        text-decoration: none;
+        display: flex; align-items: center; gap: 12px;
+        padding: 11px 16px; border-radius: 10px;
+        font-size: .92rem; font-weight: 500;
+    }
+    .nav-item:hover  { background: rgba(255,255,255,.12); color: #fff; }
+    .nav-item.activo { background: #00875F; color: #fff; font-weight: 700; }
+    .nav-item.activo::before {
+        content: '';
+        position: absolute; left: 0; top: 0; bottom: 0;
+        width: 4px; background: #fff;
+        border-radius: 0 4px 4px 0;
+    }
+    .nav-item i { width: 20px; text-align: center; font-size: 1rem; }
 
-    <!-- ── Logo y nombre del sistema ── -->
-    <div class="flex items-center justify-center border-b border-white/20 px-4 py-8">
-        <div class="text-center flex flex-col items-center">
-            <div class="bg-white p-2 rounded-full mb-2 shadow-md">
-                <img src="../../img/icon.png" width="40" height="40" alt="Logo">
-            </div>
-            <div class="font-serif-ventanet text-3xl tracking-tight leading-none text-white mt-1">
-                VentaNet
-            </div>
+    /* ── Header superior ── */
+    .header-top {
+        background: #fff; border-bottom: 1px solid #E5E7EB;
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0 32px; height: 64px;
+        position: sticky; top: 0; z-index: 30;
+    }
+    .header-titulo {
+        font-family: 'DM Serif Display', serif;
+        font-size: 1.4rem; color: #171717; font-weight: 700;
+    }
+
+    /* ── Menú desplegable del usuario ── */
+    .user-menu-wrap { position: relative; }
+    .user-trigger {
+        display: flex; align-items: center; gap: 10px; cursor: pointer;
+        padding: 7px 14px; border-radius: 10px;
+        border: 1px solid #E5E7EB; background: #fff;
+        transition: background .18s, border-color .18s; user-select: none;
+    }
+    .user-trigger:hover { background: #F8F8F8; border-color: #61D0A7; }
+    .user-avatar {
+        width: 36px; height: 36px; background: #DDF5EC; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: .85rem; font-weight: 700; color: #01614B; flex-shrink: 0;
+    }
+    .user-info-nombre { font-size: .88rem; font-weight: 700; color: #171717; line-height: 1.2; }
+    .user-info-rol    { font-size: .72rem; color: #5F6673; text-transform: uppercase; letter-spacing: .04em; }
+    .user-chevron     { font-size: .7rem; color: #5F6673; margin-left: 4px; transition: transform .2s; }
+
+    .user-dropdown {
+        position: absolute; top: calc(100% + 8px); right: 0;
+        background: #fff; border: 1px solid #E5E7EB; border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0,0,0,.10);
+        min-width: 180px; overflow: hidden; display: none; z-index: 100;
+    }
+    .user-dropdown.abierto { display: block; }
+    .dropdown-item {
+        display: flex; align-items: center; gap: 10px;
+        padding: 11px 16px; font-size: .88rem; color: #171717;
+        font-weight: 500; text-decoration: none;
+        transition: background .15s; cursor: pointer;
+        border: none; background: none; width: 100%; text-align: left;
+    }
+    .dropdown-item:hover { background: #F8F8F8; }
+    .dropdown-item.rojo  { color: #E53935; }
+    .dropdown-item.rojo:hover { background: #fde8e8; }
+    .dropdown-divider { height: 1px; background: #E5E7EB; margin: 2px 0; }
+</style>
+
+<!-- ════════════════════════════════════
+     SIDEBAR
+════════════════════════════════════ -->
+<aside style="width:240px;min-width:240px;background:#01614B;"
+       class="flex flex-col shadow-xl relative z-20">
+
+    <!-- Logo -->
+    <div style="border-bottom:1px solid rgba(255,255,255,.15);"
+         class="flex flex-col items-center justify-center py-7 px-4">
+        <div class="bg-white rounded-full p-2 shadow mb-2">
+            <img src="../../img/icon.png" width="38" height="38" alt="VentaNet">
         </div>
+        <span class="font-serif-ventanet text-white text-2xl leading-none tracking-tight">VentaNet</span>
+        <span class="text-xs mt-1" style="color:rgba(255,255,255,.55);">Sistema de Gestión</span>
     </div>
 
-    <!-- ── Menú de navegación reducido para el vendedor ── -->
-    <nav class="mt-6 px-4 flex flex-col gap-2 flex-1 font-sans-ventanet font-medium">
-        <style>
-            /* Estilo base de cada ítem del menú */
-            .nav-item {
-                color: #e6f6e4;
-                transition: all 0.2s ease;
-                position: relative;
-                overflow: hidden;
-            }
-            /* Hover: fondo verde más claro */
-            .nav-item:hover { color: #ffffff; background-color: #5faa58; }
-            /* Ítem activo: fondo verde oscuro con barra lateral blanca */
-            .nav-item.sidebar-active {
-                color: #ffffff;
-                background-color: #376B32;
-                box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
-            }
-            /* Barra blanca a la izquierda del ítem activo */
-            .nav-item.sidebar-active::before {
-                content: '';
-                position: absolute;
-                left: 0; top: 0; bottom: 0;
-                width: 4px;
-                background-color: #ffffff;
-                border-radius: 0 4px 4px 0;
-            }
-        </style>
+    <!-- Navegación reducida del Vendedor -->
+    <nav class="flex-1 px-3 py-5 flex flex-col gap-0.5 overflow-y-auto">
 
-        <!-- Ítem: Inicio (Dashboard del vendedor) → dashboard/vendedor.php -->
         <a href="../dashboard/vendedor.php"
-            class="<?= strpos($_SERVER['PHP_SELF'], 'vendedor.php') !== false ? 'sidebar-active' : '' ?> nav-item flex items-center gap-3 px-4 py-3.5 rounded-xl text-[0.95rem]">
-            <i class="fas fa-home w-5 text-center text-lg"></i>
-            <span>Inicio</span>
+           class="nav-item <?= $enInicio ? 'activo' : '' ?>">
+            <i class="fas fa-home"></i><span>Inicio</span>
         </a>
 
-        <!-- Ítem: Ventas (acceso rápido para registrar ventas) → vendedor/ventas.php -->
         <a href="../vendedor/ventas.php"
-            class="<?= strpos($_SERVER['PHP_SELF'], '/vendedor/ventas') !== false ? 'sidebar-active' : '' ?> nav-item flex items-center gap-3 px-4 py-3.5 rounded-xl text-[0.95rem]">
-            <i class="fas fa-cash-register w-5 text-center text-lg"></i>
-            <span>Ventas</span>
+           class="nav-item <?= $enVenta ? 'activo' : '' ?>">
+            <i class="fas fa-cash-register"></i><span>Ventas</span>
         </a>
 
-        <!-- Ítem: Clientes (el vendedor puede gestionar clientes) → clientes/index.php -->
         <a href="../clientes/index.php"
-            class="<?= strpos($_SERVER['PHP_SELF'], 'clientes') !== false ? 'sidebar-active' : '' ?> nav-item flex items-center gap-3 px-4 py-3.5 rounded-xl text-[0.95rem]">
-            <i class="fas fa-user-tie w-5 text-center text-lg"></i>
-            <span>Clientes</span>
+           class="nav-item <?= $enClientes ? 'activo' : '' ?>">
+            <i class="fas fa-user-tie"></i><span>Clientes</span>
         </a>
 
-        <!-- Ítem: Productos (solo lectura para el vendedor) → productos/index.php -->
         <a href="../productos/index.php"
-            class="<?= strpos($_SERVER['PHP_SELF'], 'productos') !== false ? 'sidebar-active' : '' ?> nav-item flex items-center gap-3 px-4 py-3.5 rounded-xl text-[0.95rem]">
-            <i class="fas fa-box-open w-5 text-center text-lg"></i>
-            <span>Productos</span>
+           class="nav-item <?= $enProductos ? 'activo' : '' ?>">
+            <i class="fas fa-box-open"></i><span>Productos</span>
         </a>
 
-        <!-- Ítem: Inventario (solo lectura para el vendedor) → inventario/index.php -->
         <a href="../inventario/index.php"
-            class="<?= strpos($_SERVER['PHP_SELF'], 'inventario') !== false ? 'sidebar-active' : '' ?> nav-item flex items-center gap-3 px-4 py-3.5 rounded-xl text-[0.95rem]">
-            <i class="fas fa-warehouse w-5 text-center text-lg"></i>
-            <span>Inventario</span>
+           class="nav-item <?= $enInventario ? 'activo' : '' ?>">
+            <i class="fas fa-warehouse"></i><span>Inventario</span>
         </a>
 
     </nav>
+
+    <!-- Versión -->
+    <div style="border-top:1px solid rgba(255,255,255,.10);padding:14px 20px;">
+        <p style="font-size:.7rem;color:rgba(255,255,255,.35);">VentaNet v1.0 &mdash; 2026</p>
+    </div>
+
 </aside>
 
-<!-- ── Contenedor principal del contenido (se abre aquí, se cierra en footer.php) ── -->
-<main class="flex-1 flex flex-col relative z-10 overflow-hidden">
+<!-- ════════════════════════════════════
+     CONTENIDO PRINCIPAL
+════════════════════════════════════ -->
+<main class="flex-1 flex flex-col overflow-hidden" style="min-width:0;">
 
-    <!-- ── Header superior: título, nombre de usuario y botón de logout ── -->
-    <header class="flex items-center justify-between px-10 py-5 bg-[#DFF0DC] border-b border-[#C9E4C5] shadow-sm sticky top-0 z-30">
-        <!-- Título del dashboard del vendedor -->
-        <h1 class="font-serif-ventanet text-[#1C2E1A] text-3xl tracking-tight font-bold">
-            Dahsboard Vendedor
-        </h1>
-        <div class="flex items-center gap-4">
-            <!-- Nombre y rol del usuario autenticado -->
-            <div class="flex flex-col text-right">
-                <div class="font-bold text-[#1C2E1A] text-[0.95rem] leading-tight"><?= htmlspecialchars($nombre) ?></div>
-                <div class="text-[0.75rem] text-[#4A8C44] font-medium uppercase tracking-wider"><?= $rolDisplay ?></div>
+    <!-- Header superior -->
+    <header class="header-top">
+        <span class="header-titulo"><?= htmlspecialchars($titulo ?? 'Panel Vendedor') ?></span>
+
+        <!-- Menú usuario -->
+        <div class="user-menu-wrap">
+            <div class="user-trigger" id="userTrigger" onclick="toggleUserMenu()">
+                <div class="user-avatar">
+                    <?= mb_strtoupper(mb_substr($nombre, 0, 2)) ?>
+                </div>
+                <div>
+                    <p class="user-info-nombre"><?= htmlspecialchars($nombre) ?></p>
+                    <p class="user-info-rol"><?= $rolDisplay ?></p>
+                </div>
+                <i class="fas fa-chevron-down user-chevron" id="userChevron"></i>
             </div>
-            <div class="w-px h-8 bg-[#C9E4C5] mx-1"></div>
-            <!-- Botón de cierre de sesión → AuthController.php?accion=logout -->
-            <a href="../../controllers/AuthController.php?accion=logout"
-                class="flex items-center gap-2 text-red-500 hover:text-red-700 hover:bg-red-100 px-3 py-2 rounded-lg transition-colors font-bold text-sm">
-                <i class="fas fa-sign-out-alt text-lg"></i>
-                <span>Cerrar Sesión</span>
-            </a>
+
+            <div class="user-dropdown" id="userDropdown">
+                <a href="#" class="dropdown-item">
+                    <i class="fas fa-user" style="color:#00875F;width:16px;text-align:center;"></i>
+                    Mi perfil
+                </a>
+                <div class="dropdown-divider"></div>
+                <a href="../../controllers/AuthController.php?accion=logout"
+                   class="dropdown-item rojo">
+                    <i class="fas fa-sign-out-alt" style="width:16px;text-align:center;"></i>
+                    Cerrar sesión
+                </a>
+            </div>
         </div>
     </header>
 
-    <!-- ── Sección de contenido principal (se cierra en footer.php con </section>) ── -->
-    <section class="p-8 flex-1 overflow-y-auto">
+    <!-- Sección de contenido -->
+    <section class="flex-1 overflow-y-auto p-8" style="background:#F8F8F8;">
+
+<script>
+    function toggleUserMenu() {
+        var d = document.getElementById('userDropdown');
+        var c = document.getElementById('userChevron');
+        var open = d.classList.toggle('abierto');
+        c.style.transform = open ? 'rotate(180deg)' : 'rotate(0deg)';
+    }
+    document.addEventListener('click', function(e) {
+        var t = document.getElementById('userTrigger');
+        var d = document.getElementById('userDropdown');
+        if (t && d && !t.contains(e.target) && !d.contains(e.target)) {
+            d.classList.remove('abierto');
+            var c = document.getElementById('userChevron');
+            if (c) c.style.transform = 'rotate(0deg)';
+        }
+    });
+</script>

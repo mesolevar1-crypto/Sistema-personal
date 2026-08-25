@@ -104,6 +104,49 @@ class Reporte {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    /**
+     * Detalle de productos comprados para el rango/proveedor filtrado,
+     * agrupado por id_compra para que la vista pueda mostrar el
+     * desglose de cada compra al expandirla (sin hacer una consulta
+     * por fila).
+     *
+     * NOTA: se asume que `unidades_medida` tiene una columna `nombre`
+     * para mostrar la unidad (ej. "kg", "caja", "unidad"). Si en tu
+     * tabla se llama distinto (p.ej. `abreviatura` o `descripcion`),
+     * cambia el alias `um.nombre` más abajo por el nombre correcto.
+     *
+     * @return array [ id_compra => [ fila, fila, ... ] ]
+     */
+    public function detalleComprasPorRango($desde, $hasta, $idProv = 0) {
+        $sql = "SELECT
+                    dc.id_compra,
+                    p.nombre           AS producto,
+                    dc.cantidad,
+                    dc.precio_compra,
+                    dc.subtotal,
+                    um.nombre          AS unidad
+                FROM detalle_compra dc
+                INNER JOIN compra    c  ON dc.id_compra  = c.id_compra
+                INNER JOIN producto  p  ON dc.id_producto = p.id_producto
+                LEFT JOIN unidades_medida um ON dc.id_unidad = um.id_unidad
+                WHERE c.fecha BETWEEN :desde AND :hasta";
+        if ($idProv > 0) $sql .= " AND c.id_proveedor = :idprov";
+        $sql .= " ORDER BY dc.id_compra ASC, p.nombre ASC";
+
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bindParam(':desde', $desde);
+        $stmt->bindParam(':hasta', $hasta);
+        if ($idProv > 0) $stmt->bindParam(':idprov', $idProv);
+        $stmt->execute();
+        $filas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $agrupado = [];
+        foreach ($filas as $f) {
+            $agrupado[$f['id_compra']][] = $f;
+        }
+        return $agrupado;
+    }
+
     public function listaProveedores() {
         $sql = "SELECT pr.id_proveedor, pe.nombre
                 FROM proveedor pr INNER JOIN persona pe ON pr.id_persona = pe.id_persona
@@ -138,6 +181,47 @@ class Reporte {
                   AND v.estado = 1";
         if ($idUsuario > 0) $sql .= " AND v.id_usuario = :idusuario";
         $sql .= " ORDER BY v.fecha DESC";
+
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bindParam(':desde', $desde);
+        $stmt->bindParam(':hasta', $hasta);
+        if ($idUsuario > 0) $stmt->bindParam(':idusuario', $idUsuario);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    // ── Ganancias agrupadas (día / semana / mes) para el gráfico ───
+    public function gananciasPorPeriodo($desde, $hasta, $agrupacion = 'dia', $idUsuario = 0) {
+        switch ($agrupacion) {
+            case 'semana':
+                $grupo    = "YEARWEEK(v.fecha, 3)";
+                $etiqueta = "CONCAT('Sem. ', WEEK(v.fecha, 3), ' · ', YEAR(v.fecha))";
+                break;
+            case 'mes':
+                $grupo    = "DATE_FORMAT(v.fecha, '%Y-%m')";
+                $etiqueta = "DATE_FORMAT(v.fecha, '%M %Y')";
+                break;
+            default: // dia
+                $grupo    = "v.fecha";
+                $etiqueta = "DATE_FORMAT(v.fecha, '%d/%m')";
+        }
+
+        $sql = "SELECT
+                    $grupo AS periodo_key,
+                    MIN($etiqueta)   AS periodo_label,
+                    MIN(v.fecha)     AS fecha_orden,
+                    COUNT(*)         AS cantidad,
+                    COALESCE(SUM(v.total), 0) AS total_vendido,
+                    COALESCE(SUM((
+                        SELECT SUM(dv2.subtotal - (dv2.costo_unitario * dv2.cantidad))
+                        FROM detalle_venta dv2
+                        WHERE dv2.id_venta = v.id_venta
+                    )), 0) AS ganancia
+                FROM venta v
+                WHERE v.fecha BETWEEN :desde AND :hasta
+                  AND v.estado = 1";
+        if ($idUsuario > 0) $sql .= " AND v.id_usuario = :idusuario";
+        $sql .= " GROUP BY $grupo ORDER BY fecha_orden ASC";
 
         $stmt = $this->conn->prepare($sql);
         $stmt->bindParam(':desde', $desde);
@@ -209,10 +293,10 @@ class Reporte {
         return $this->conn->query($sql)->fetch(PDO::FETCH_ASSOC);
     }
 
-    // ── Corregido: se quitó el filtro "WHERE estado = 1" porque
-    //    dejaba la lista vacía (la tabla `categoria` no tiene esa
-    //    columna, o ninguna fila tenía ese valor). También se
-    //    agregó el execute() que faltaba antes del fetchAll().
+    // ── Se quitó el filtro "WHERE estado = 1" porque dejaba la
+    //    lista vacía (la tabla `categoria` no tiene esa columna,
+    //    o ninguna fila tenía ese valor). También se agregó el
+    //    execute() que faltaba antes del fetchAll().
     public function listaCategorias() {
         $stmt = $this->conn->prepare(
             "SELECT id_categoria, tipo FROM categoria ORDER BY tipo ASC"

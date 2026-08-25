@@ -1,6 +1,16 @@
 <?php
 // ============================================================
-// Reporte de Inventario — stock desde inventario.stock_actual
+// Reporte de Inventario — versión simple
+//
+// Qué hace esta página, paso a paso:
+//   1. Verifica que haya sesión iniciada.
+//   2. Lee los filtros que vengan en la URL (?buscar=...&id_categoria=...&estado=...)
+//   3. Le pide al modelo Reporte los productos que cumplen esos filtros.
+//   4. Calcula 4 números de resumen (tarjetas).
+//   5. Pinta las tarjetas + la tabla.
+//   6. El botón "Exportar a PDF" usa la función de imprimir del
+//      navegador (window.print) para generar el PDF, mostrando
+//      SOLO las tarjetas y la tabla (sin el formulario de filtros).
 // ============================================================
 session_start();
 
@@ -16,18 +26,34 @@ $database     = new Database();
 $db           = $database->conectar();
 $reporteModel = new Reporte($db);
 
-// Filtros
-$buscar  = trim($_GET['buscar'] ?? '');
-$idCat   = intval($_GET['id_categoria'] ?? 0);
-$estado  = trim($_GET['estado'] ?? '');
+// ── 1. Filtros que llegan desde el formulario (método GET) ──
+$buscar = trim($_GET['buscar'] ?? '');
+$idCat  = intval($_GET['id_categoria'] ?? 0);
+$estado = trim($_GET['estado'] ?? ''); // '', 'disponible', 'bajo', 'agotado'
 
-$inventario  = $reporteModel->reporteInventario($buscar, $idCat, $estado);
-$resumen     = $reporteModel->resumenInventario();
-$categorias  = $reporteModel->listaCategorias();
+// ── 2. Datos ──
+$inventario = $reporteModel->reporteInventario($buscar, $idCat, $estado);
+$categorias = $reporteModel->listaCategorias();
 
-// Nombre de archivo sugerido para el PDF
+// ── 3. Tarjetas de resumen (se calculan sobre lo que arrojó el filtro) ──
+$totalProductos = count($inventario);
+$totalUnidades  = 0;
+$totalBajo      = 0;
+$totalAgotado   = 0;
+
+foreach ($inventario as $fila) {
+    $stockActual  = intval($fila['stock_actual']);
+    $stockMinimo  = intval($fila['stock_minimo']);
+    $totalUnidades += $stockActual;
+
+    if ($stockActual === 0) {
+        $totalAgotado++;
+    } elseif ($stockActual <= $stockMinimo) {
+        $totalBajo++;
+    }
+}
+
 $nombreArchivoPDF = 'Reporte_Inventario_' . date('Y-m-d');
-if ($estado) $nombreArchivoPDF .= '_' . $estado;
 
 $titulo = 'Reporte de Inventario';
 require_once __DIR__ . '/../layouts/header.php';
@@ -35,307 +61,266 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 ?>
 
 <style>
-    .btn-primario {
-        background:#00875F;color:#fff;border-radius:10px;border:none;font-weight:600;
-        font-family:'Outfit',sans-serif;cursor:pointer;
-        transition:background .18s,transform .15s;
-        box-shadow:0 4px 12px rgba(0,135,95,.22);
-        display:inline-flex;align-items:center;gap:6px;padding:9px 20px;
-        text-decoration:none;
+    /* ===== Colores VentaNet (los mismos de siempre) ===== */
+    :root {
+        --verde:        #00875F;
+        --verde-oscuro: #01614B;
+        --verde-claro:  #DDF5EC;
+        --texto:        #171717;
+        --texto-suave:  #5F6673;
+        --texto-tenue:  #9CA3AF;
+        --borde:        #E5E7EB;
+        --fondo-suave:  #F8FAF9;
+        --amarillo:     #FFB51B;
+        --rojo:         #E53935;
     }
-    .btn-primario:hover { background:#01614B;transform:translateY(-2px); }
-    .btn-primario:disabled { background:#9CA3AF;cursor:not-allowed;box-shadow:none;transform:none; }
-    .btn-secundario {
-        padding:9px 16px;border-radius:9px;border:1px solid #E5E7EB;background:#fff;
-        color:#5F6673;font-size:.85rem;font-weight:600;text-decoration:none;
-        display:inline-flex;align-items:center;gap:5px;cursor:pointer;
-        font-family:'Outfit',sans-serif;transition:background .15s,border-color .15s;
-    }
-    .btn-secundario:hover { background:#F8F8F8;border-color:#00875F;color:#00875F; }
-    .campo-input {
-        background:#fff;border:1.5px solid #E5E7EB;border-radius:10px;
-        color:#171717;font-family:'Outfit',sans-serif;font-size:.9rem;
-        outline:none;padding:9px 12px;width:100%;
-        transition:border-color .2s,box-shadow .2s;
-    }
-    .campo-input:focus { border-color:#61D0A7;box-shadow:0 0 0 4px rgba(97,208,167,.15); }
-    .kpi  { background:#fff;border:1px solid #E5E7EB;border-radius:14px;padding:18px; }
-    .panel { background:#fff;border:1px solid #E5E7EB;border-radius:14px;overflow:hidden; }
-    .panel-head { background:#F8F8F8;border-bottom:1px solid #E5E7EB;padding:14px 20px; }
-    .filtro-link {
-        padding:7px 14px;border-radius:9px;border:1px solid #E5E7EB;
-        background:#fff;color:#5F6673;font-size:.82rem;font-weight:600;
-        text-decoration:none;display:inline-block;
-        transition:background .15s,border-color .15s,color .15s;
-    }
-    .filtro-link:hover      { background:#DDF5EC;border-color:#61D0A7;color:#01614B; }
-    .filtro-link.f-todos    { background:#00875F;border-color:#00875F;color:#fff; }
-    .filtro-link.f-disp     { background:#00875F;border-color:#00875F;color:#fff; }
-    .filtro-link.f-bajo     { background:#FFB51B;border-color:#FFB51B;color:#fff; }
-    .filtro-link.f-agot     { background:#E53935;border-color:#E53935;color:#fff; }
 
-    /* ===== Exportar a PDF (misma pestaña, sin abrir ventanas nuevas) ===== */
+    .btn-primario {
+        background: var(--verde); color:#fff; border-radius:10px; border:none; font-weight:600;
+        font-family:'Outfit',sans-serif; cursor:pointer;
+        display:inline-flex; align-items:center; gap:6px; padding:10px 20px;
+        text-decoration:none; font-size:.85rem;
+        box-shadow:0 4px 14px rgba(0,135,95,.22);
+        transition: background .18s, transform .15s;
+    }
+    .btn-primario:hover { background: var(--verde-oscuro); transform: translateY(-2px); }
+    .btn-primario:disabled { background:#B9BFC6; cursor:not-allowed; box-shadow:none; transform:none; }
+
+    .btn-secundario {
+        padding:10px 16px; border-radius:10px; border:1.5px solid var(--borde); background:#fff;
+        color:var(--texto-suave); font-size:.85rem; font-weight:600; text-decoration:none;
+        display:inline-flex; align-items:center; gap:5px; cursor:pointer;
+        font-family:'Outfit',sans-serif;
+    }
+    .btn-secundario:hover { background: var(--fondo-suave); border-color: var(--verde); color: var(--verde); }
+
+    .campo-input {
+        background:#fff; border:1.5px solid var(--borde); border-radius:10px;
+        color:var(--texto); font-family:'Outfit',sans-serif; font-size:.9rem;
+        outline:none; padding:10px 12px; width:100%;
+    }
+    .campo-input:focus { border-color: var(--verde); box-shadow:0 0 0 4px rgba(0,135,95,.12); }
+
+    .panel {
+        background:#fff; border:1px solid var(--borde); border-radius:16px; overflow:hidden;
+    }
+    .panel-head { background: var(--fondo-suave); border-bottom:1px solid var(--borde); padding:14px 20px; }
+
+    /* ── Tarjetas de resumen ── */
+    .kpi { background:#fff; border:1px solid var(--borde); border-radius:14px; padding:18px; }
+    .kpi-icono {
+        width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+        margin-bottom:10px;
+    }
+    .kpi-label { font-size:.68rem; font-weight:800; color:var(--texto-suave); text-transform:uppercase; letter-spacing:.05em; }
+    .kpi-valor { font-size:1.8rem; font-weight:800; color:var(--texto); line-height:1; margin-top:6px; }
+    .kpi-sub   { font-size:.72rem; color:var(--texto-tenue); margin-top:3px; }
+
+    .filtro-link {
+        padding:7px 14px; border-radius:9px; border:1.5px solid var(--borde);
+        background:#fff; color:var(--texto-suave); font-size:.8rem; font-weight:700;
+        text-decoration:none; display:inline-block;
+    }
+    .filtro-link.activo-todos { background: var(--verde); border-color: var(--verde); color:#fff; }
+    .filtro-link.activo-disp  { background: var(--verde); border-color: var(--verde); color:#fff; }
+    .filtro-link.activo-bajo  { background: var(--amarillo); border-color: var(--amarillo); color:#fff; }
+    .filtro-link.activo-agot  { background: var(--rojo); border-color: var(--rojo); color:#fff; }
+
+    /* ── Tabla ── */
+    .tabla th {
+        background: var(--verde-oscuro); color:#fff;
+        font-size:.7rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em;
+        padding:12px 16px;
+    }
+    .tabla td { padding:12px 16px; font-size:.85rem; }
+    .tabla tbody tr { border-bottom:1px solid var(--borde); }
+
+    .etiqueta {
+        padding:3px 12px; border-radius:999px; font-size:.74rem; font-weight:700; border:1px solid;
+    }
+
+    /* ===== Exportar a PDF: solo tarjetas + tabla ===== */
     .encabezado-impresion { display:none; }
 
     @media print {
+        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         body * { visibility: hidden; }
         #reporteImprimir, #reporteImprimir * { visibility: visible; }
-        #reporteImprimir {
-            position: absolute; left: 0; top: 0; width: 100%; padding: 10px;
-        }
+        #reporteImprimir { position: absolute; left:0; top:0; width:100%; padding:10px; }
         .no-imprimir { display: none !important; }
         .kpi, .panel { break-inside: avoid; box-shadow: none !important; }
-        tr { break-inside: avoid; page-break-inside: avoid; }
         thead { break-after: avoid; }
         .encabezado-impresion { display: block !important; margin-bottom: 16px; }
-
-        /* Fix: la tabla se cortaba por el scroll horizontal al exportar */
-        .overflow-x-auto { overflow: visible !important; }
-        table { width: 100% !important; font-size: 10px; }
-        th, td { padding: 4px 6px !important; }
-
-        @page {
-            margin: 12mm 10mm;
-        }
+        @page { margin: 12mm 10mm; }
     }
 </style>
 
 <div class="max-w-7xl mx-auto font-sans-ventanet" id="reporteImprimir">
 
-    <!-- Encabezado solo visible al imprimir/exportar -->
+    <!-- Este bloque solo se ve en el PDF exportado -->
     <div class="encabezado-impresion">
         <h2 style="font-size:1.4rem;font-weight:800;color:#01614B;">VentaNet — Reporte de Inventario</h2>
         <p style="font-size:.8rem;color:#5F6673;">
-            <?= $buscar ? 'Filtro: "' . htmlspecialchars($buscar) . '" · ' : '' ?>
-            <?php if ($idCat > 0):
-                foreach ($categorias as $cat) {
-                    if ($cat['id_categoria'] == $idCat) {
-                        echo 'Categoría: ' . htmlspecialchars($cat['tipo']) . ' · ';
-                        break;
-                    }
-                }
-            endif; ?>
+            <?= $buscar ? 'Búsqueda: "' . htmlspecialchars($buscar) . '" · ' : '' ?>
+            <?php foreach ($categorias as $cat): if ($cat['id_categoria'] == $idCat): ?>
+                Categoría: <?= htmlspecialchars($cat['tipo']) ?> ·
+            <?php endif; endforeach; ?>
             <?= $estado ? 'Estado: ' . htmlspecialchars($estado) . ' · ' : '' ?>
             Generado: <?= date('d/m/Y H:i') ?>
         </p>
     </div>
 
-    <!-- Encabezado -->
+    <!-- Encabezado de la página -->
     <div class="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4 no-imprimir">
         <div style="display:flex;align-items:center;gap:12px;">
             <a href="index.php"
-               style="padding:8px 14px;border-radius:9px;border:1px solid #E5E7EB;background:#fff;color:#00875F;font-size:.82rem;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:5px;">
+               style="padding:8px 14px;border-radius:9px;border:1px solid var(--borde);background:#fff;color:var(--verde);font-size:.82rem;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:5px;">
                <i class="fas fa-arrow-left" style="font-size:.7rem;"></i> Volver
             </a>
             <div>
-                <h2 class="text-3xl font-bold font-serif-ventanet" style="color:#01614B;">Reporte de Inventario</h2>
-                <p class="text-sm mt-1" style="color:#5F6673;">Consulta el estado actual de tu inventario</p>
+                <h2 class="text-3xl font-bold font-serif-ventanet" style="color:var(--verde-oscuro);">Reporte de Inventario</h2>
+                <p class="text-sm mt-1" style="color:var(--texto-suave);">Productos y su stock actual</p>
             </div>
         </div>
         <button type="button" class="btn-primario" onclick="exportarPDF()" <?= empty($inventario) ? 'disabled title="No hay datos para exportar"' : '' ?>>
-            <i class="fas fa-file-pdf" style="font-size:.85rem;"></i> Exportar a PDF
+            <i class="fas fa-file-pdf"></i> Exportar a PDF
         </button>
     </div>
 
-    <!-- KPIs reales -->
+    <!-- Tarjetas de resumen -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div class="kpi">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                <div style="width:36px;height:36px;background:#DDF5EC;border-radius:9px;display:flex;align-items:center;justify-content:center;">
-                    <i class="fas fa-boxes" style="color:#00875F;font-size:.85rem;"></i>
-                </div>
-                <span style="font-size:.7rem;font-weight:700;color:#5F6673;text-transform:uppercase;">Total productos</span>
+            <div class="kpi-icono" style="background:var(--verde-claro);">
+                <i class="fas fa-boxes" style="color:var(--verde);"></i>
             </div>
-            <p style="font-size:1.8rem;font-weight:800;color:#171717;line-height:1;"><?= intval($resumen['total_productos'] ?? 0) ?></p>
-            <p style="font-size:.72rem;color:#9CA3AF;margin-top:3px;">en catálogo</p>
+            <span class="kpi-label">Total productos</span>
+            <p class="kpi-valor"><?= $totalProductos ?></p>
+            <p class="kpi-sub">según filtro actual</p>
         </div>
-
         <div class="kpi">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                <div style="width:36px;height:36px;background:#DDF5EC;border-radius:9px;display:flex;align-items:center;justify-content:center;">
-                    <i class="fas fa-cubes" style="color:#00875F;font-size:.85rem;"></i>
-                </div>
-                <span style="font-size:.7rem;font-weight:700;color:#5F6673;text-transform:uppercase;">Unidades disponibles</span>
+            <div class="kpi-icono" style="background:var(--verde-claro);">
+                <i class="fas fa-cubes" style="color:var(--verde);"></i>
             </div>
-            <p style="font-size:1.8rem;font-weight:800;color:#171717;line-height:1;"><?= number_format($resumen['total_unidades'] ?? 0) ?></p>
-            <p style="font-size:.72rem;color:#9CA3AF;margin-top:3px;">en inventario</p>
+            <span class="kpi-label">Unidades en stock</span>
+            <p class="kpi-valor"><?= number_format($totalUnidades) ?></p>
+            <p class="kpi-sub">suma de todas las unidades</p>
         </div>
-
-        <div class="kpi" style="border-color:<?= intval($resumen['stock_bajo'] ?? 0) > 0 ? '#FFB51B' : '#E5E7EB' ?>;">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                <div style="width:36px;height:36px;background:#fffbeb;border-radius:9px;display:flex;align-items:center;justify-content:center;">
-                    <i class="fas fa-exclamation-triangle" style="color:#FFB51B;font-size:.85rem;"></i>
-                </div>
-                <span style="font-size:.7rem;font-weight:700;color:#5F6673;text-transform:uppercase;">Stock bajo</span>
+        <div class="kpi">
+            <div class="kpi-icono" style="background:#FFF7E3;">
+                <i class="fas fa-exclamation-triangle" style="color:var(--amarillo);"></i>
             </div>
-            <p style="font-size:1.8rem;font-weight:800;color:#FFB51B;line-height:1;"><?= intval($resumen['stock_bajo'] ?? 0) ?></p>
-            <p style="font-size:.72rem;color:#9CA3AF;margin-top:3px;">con poco stock</p>
+            <span class="kpi-label">Stock bajo</span>
+            <p class="kpi-valor" style="color:var(--amarillo);"><?= $totalBajo ?></p>
+            <p class="kpi-sub">por debajo del mínimo</p>
         </div>
-
-        <div class="kpi" style="border-color:<?= intval($resumen['agotados'] ?? 0) > 0 ? '#fde8e8' : '#E5E7EB' ?>;">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                <div style="width:36px;height:36px;background:#fde8e8;border-radius:9px;display:flex;align-items:center;justify-content:center;">
-                    <i class="fas fa-times-circle" style="color:#E53935;font-size:.85rem;"></i>
-                </div>
-                <span style="font-size:.7rem;font-weight:700;color:#5F6673;text-transform:uppercase;">Agotados</span>
+        <div class="kpi">
+            <div class="kpi-icono" style="background:#FDECEC;">
+                <i class="fas fa-times-circle" style="color:var(--rojo);"></i>
             </div>
-            <p style="font-size:1.8rem;font-weight:800;color:#E53935;line-height:1;"><?= intval($resumen['agotados'] ?? 0) ?></p>
-            <p style="font-size:.72rem;color:#9CA3AF;margin-top:3px;">sin unidades</p>
+            <span class="kpi-label">Agotados</span>
+            <p class="kpi-valor" style="color:var(--rojo);"><?= $totalAgotado ?></p>
+            <p class="kpi-sub">sin unidades</p>
         </div>
     </div>
 
-    <!-- Filtros: buscador + categoría via GET -->
-    <form method="GET" class="panel mb-4 no-imprimir">
+    <!-- Filtros -->
+    <form method="GET" class="panel mb-6 no-imprimir">
         <div class="panel-head">
-            <h3 style="font-size:.88rem;font-weight:700;color:#171717;display:flex;align-items:center;gap:8px;">
-                <i class="fas fa-filter" style="color:#00875F;"></i> Filtros
+            <h3 style="font-size:.85rem;font-weight:700;color:var(--texto);display:flex;align-items:center;gap:8px;">
+                <i class="fas fa-filter" style="color:var(--verde);"></i> Filtros
             </h3>
         </div>
-        <div style="padding:18px;display:grid;grid-template-columns:1fr 1fr auto auto;gap:12px;align-items:end;">
-            <div style="position:relative;">
-                <label style="display:block;font-size:.78rem;font-weight:700;color:#5F6673;margin-bottom:5px;">Buscar producto</label>
-                <i class="fas fa-search" style="position:absolute;left:11px;bottom:11px;color:#9CA3AF;font-size:.78rem;pointer-events:none;"></i>
+        <div style="padding:18px;display:grid;grid-template-columns:1.4fr 1fr auto auto;gap:12px;align-items:end;">
+            <div>
+                <label style="display:block;font-size:.78rem;font-weight:700;color:var(--texto-suave);margin-bottom:5px;">Buscar producto</label>
                 <input type="text" name="buscar" value="<?= htmlspecialchars($buscar) ?>"
-                       placeholder="Nombre del producto..."
-                       class="campo-input" style="padding-left:32px;">
-                <?php if ($estado): ?>
-                    <input type="hidden" name="estado" value="<?= htmlspecialchars($estado) ?>">
-                <?php endif; ?>
-                <?php if ($idCat): ?>
-                    <input type="hidden" name="id_categoria" value="<?= $idCat ?>">
-                <?php endif; ?>
+                       placeholder="Nombre del producto..." class="campo-input">
             </div>
-            <div style="position:relative;">
-                <label style="display:block;font-size:.78rem;font-weight:700;color:#5F6673;margin-bottom:5px;">Categoría</label>
-                <select name="id_categoria" class="campo-input" style="appearance:none;cursor:pointer;">
-                    <option value="0">Todas las categorías</option>
+            <div>
+                <label style="display:block;font-size:.78rem;font-weight:700;color:var(--texto-suave);margin-bottom:5px;">Categoría</label>
+                <select name="id_categoria" class="campo-input">
+                    <option value="0">Todas</option>
                     <?php foreach ($categorias as $cat): ?>
                         <option value="<?= $cat['id_categoria'] ?>" <?= $idCat == $cat['id_categoria'] ? 'selected' : '' ?>>
                             <?= htmlspecialchars($cat['tipo']) ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
-                <i class="fas fa-chevron-down" style="position:absolute;right:10px;bottom:11px;color:#00875F;font-size:.7rem;pointer-events:none;"></i>
             </div>
             <button type="submit" class="btn-primario">
-                <i class="fas fa-search" style="font-size:.8rem;"></i> Buscar
+                <i class="fas fa-search"></i> Buscar
             </button>
             <a href="inventario.php" class="btn-secundario">
-               <i class="fas fa-times" style="font-size:.75rem;"></i> Limpiar
+                <i class="fas fa-times"></i> Limpiar
             </a>
+        </div>
+        <div style="padding:0 18px 16px;display:flex;gap:8px;flex-wrap:wrap;">
+            <a href="?buscar=<?= urlencode($buscar) ?>&id_categoria=<?= $idCat ?>"
+               class="filtro-link <?= $estado === '' ? 'activo-todos' : '' ?>">Todos</a>
+            <a href="?buscar=<?= urlencode($buscar) ?>&id_categoria=<?= $idCat ?>&estado=disponible"
+               class="filtro-link <?= $estado === 'disponible' ? 'activo-disp' : '' ?>">Disponible</a>
+            <a href="?buscar=<?= urlencode($buscar) ?>&id_categoria=<?= $idCat ?>&estado=bajo"
+               class="filtro-link <?= $estado === 'bajo' ? 'activo-bajo' : '' ?>">Stock bajo</a>
+            <a href="?buscar=<?= urlencode($buscar) ?>&id_categoria=<?= $idCat ?>&estado=agotado"
+               class="filtro-link <?= $estado === 'agotado' ? 'activo-agot' : '' ?>">Agotado</a>
         </div>
     </form>
 
-    <!-- Filtros de estado (links GET) -->
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;" class="no-imprimir">
-        <a href="?buscar=<?= urlencode($buscar) ?>&id_categoria=<?= $idCat ?>"
-           class="filtro-link <?= $estado === '' ? 'f-todos' : '' ?>">Todos</a>
-        <a href="?buscar=<?= urlencode($buscar) ?>&id_categoria=<?= $idCat ?>&estado=disponible"
-           class="filtro-link <?= $estado === 'disponible' ? 'f-disp' : '' ?>">✓ Disponible</a>
-        <a href="?buscar=<?= urlencode($buscar) ?>&id_categoria=<?= $idCat ?>&estado=bajo"
-           class="filtro-link <?= $estado === 'bajo' ? 'f-bajo' : '' ?>">⚠ Stock bajo</a>
-        <a href="?buscar=<?= urlencode($buscar) ?>&id_categoria=<?= $idCat ?>&estado=agotado"
-           class="filtro-link <?= $estado === 'agotado' ? 'f-agot' : '' ?>">✕ Agotado</a>
-    </div>
-
-    <!-- Tabla de inventario -->
+    <!-- Tabla de productos -->
     <div class="panel">
         <div class="panel-head" style="display:flex;align-items:center;justify-content:space-between;">
-            <h3 style="font-size:.88rem;font-weight:700;color:#171717;">Estado del inventario</h3>
-            <span style="font-size:.78rem;color:#5F6673;">
-                <?= count($inventario) ?> resultado(s)
-                <?= $buscar ? '· "<strong>' . htmlspecialchars($buscar) . '</strong>"' : '' ?>
-                <?= $estado ? '· <strong>' . htmlspecialchars($estado) . '</strong>' : '' ?>
-            </span>
+            <h3 style="font-size:.88rem;font-weight:700;color:var(--texto);">Productos</h3>
+            <span style="font-size:.78rem;color:var(--texto-suave);"><?= $totalProductos ?> resultado(s)</span>
         </div>
         <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse">
+            <table class="w-full text-left border-collapse tabla">
                 <thead>
-                    <tr style="background:#01614B;">
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide" style="color:#fff;">Producto</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide" style="color:#fff;">Categoría</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-center" style="color:#fff;">Stock actual</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-center" style="color:#fff;">Stock mínimo</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-center" style="color:#fff;">Estado</th>
-                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-center" style="color:#fff;">Última actualización</th>
+                    <tr>
+                        <th>Producto</th>
+                        <th>Categoría</th>
+                        <th class="text-center">Stock actual</th>
+                        <th class="text-center">Stock mínimo</th>
+                        <th class="text-center">Estado</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (!empty($inventario)): ?>
-                        <?php foreach ($inventario as $row):
-                            $sa = intval($row['stock_actual']);
-                            $sm = intval($row['stock_minimo']);
+                        <?php foreach ($inventario as $fila):
+                            $stockActual = intval($fila['stock_actual']);
+                            $stockMinimo = intval($fila['stock_minimo']);
 
-                            if ($sa === 0)        { $est = 'agotado';    $bgFila = '#FDECEC'; $bgHov = '#fde0e0'; }
-                            elseif ($sa <= $sm)   { $est = 'bajo';       $bgFila = '#fffbeb'; $bgHov = '#fef3c7'; }
-                            else                  { $est = 'disponible'; $bgFila = '#fff';    $bgHov = '#F8F8F8'; }
+                            if ($stockActual === 0) {
+                                $estadoTexto  = 'Agotado';
+                                $colorTexto   = 'var(--rojo)';
+                                $fondoFila    = '#FDECEC';
+                            } elseif ($stockActual <= $stockMinimo) {
+                                $estadoTexto  = 'Stock bajo';
+                                $colorTexto   = '#92400E';
+                                $fondoFila    = '#FFFBEB';
+                            } else {
+                                $estadoTexto  = 'Disponible';
+                                $colorTexto   = 'var(--verde)';
+                                $fondoFila    = '#fff';
+                            }
                         ?>
-                        <tr style="border-bottom:1px solid #E5E7EB;background:<?= $bgFila ?>;transition:background .15s;"
-                            onmouseover="this.style.background='<?= $bgHov ?>'"
-                            onmouseout="this.style.background='<?= $bgFila ?>'">
-
-                            <td class="px-5 py-3.5 font-bold text-sm" style="color:#171717;">
-                                <?= htmlspecialchars($row['producto']) ?>
+                        <tr style="background:<?= $fondoFila ?>;">
+                            <td style="font-weight:700;color:var(--texto);"><?= htmlspecialchars($fila['producto']) ?></td>
+                            <td style="color:var(--texto-suave);"><?= htmlspecialchars($fila['categoria'] ?? 'Sin categoría') ?></td>
+                            <td class="text-center" style="font-weight:800;font-size:1.05rem;color:<?= $colorTexto ?>;">
+                                <?= $stockActual ?>
                             </td>
-                            <td class="px-5 py-3.5 text-sm" style="color:#5F6673;">
-                                <?php if (!empty($row['categoria'])): ?>
-                                    <span style="background:#EBF5FF;color:#1F3552;border:1px solid #BFDBFE;padding:2px 10px;border-radius:999px;font-size:.72rem;font-weight:700;">
-                                        <?= htmlspecialchars($row['categoria']) ?>
-                                    </span>
-                                <?php else: ?>
-                                    <span style="color:#9CA3AF;font-style:italic;">Sin categoría</span>
-                                <?php endif; ?>
-                            </td>
-                            <td class="px-5 py-3.5 text-center">
-                                <?php
-                                $cStock = $est === 'agotado' ? '#E53935'
-                                        : ($est === 'bajo'  ? '#FFB51B' : '#00875F');
-                                ?>
-                                <span style="font-size:1.3rem;font-weight:800;color:<?= $cStock ?>;"><?= $sa ?></span>
-                                <span style="font-size:.7rem;color:#9CA3AF;margin-left:2px;">uds.</span>
-                            </td>
-                            <td class="px-5 py-3.5 text-center text-sm font-semibold" style="color:#5F6673;"><?= $sm ?></td>
-                            <td class="px-5 py-3.5 text-center">
-                                <?php if ($est === 'agotado'): ?>
-                                    <span style="background:#fde8e8;color:#E53935;border:1px solid #E53935;padding:3px 12px;border-radius:999px;font-size:.75rem;font-weight:700;display:inline-flex;align-items:center;gap:4px;">
-                                        <span style="width:6px;height:6px;background:#E53935;border-radius:50%;display:inline-block;"></span>
-                                        Agotado
-                                    </span>
-                                <?php elseif ($est === 'bajo'): ?>
-                                    <span style="background:#fffbeb;color:#92400E;border:1px solid #FFB51B;padding:3px 12px;border-radius:999px;font-size:.75rem;font-weight:700;display:inline-flex;align-items:center;gap:4px;">
-                                        <span style="width:6px;height:6px;background:#FFB51B;border-radius:50%;display:inline-block;"></span>
-                                        Stock bajo
-                                    </span>
-                                <?php else: ?>
-                                    <span style="background:#DDF5EC;color:#00875F;border:1px solid #61D0A7;padding:3px 12px;border-radius:999px;font-size:.75rem;font-weight:700;display:inline-flex;align-items:center;gap:4px;">
-                                        <span style="width:6px;height:6px;background:#00875F;border-radius:50%;display:inline-block;"></span>
-                                        Disponible
-                                    </span>
-                                <?php endif; ?>
-                            </td>
-                            <td class="px-5 py-3.5 text-center text-sm" style="color:#5F6673;">
-                                <?php if (!empty($row['fecha_actualizacion'])): ?>
-                                    <?= date('d/m/Y', strtotime($row['fecha_actualizacion'])) ?>
-                                <?php else: ?>
-                                    <span style="color:#9CA3AF;font-style:italic;">Sin registro</span>
-                                <?php endif; ?>
+                            <td class="text-center" style="color:var(--texto-suave);"><?= $stockMinimo ?></td>
+                            <td class="text-center">
+                                <span class="etiqueta" style="color:<?= $colorTexto ?>;border-color:<?= $colorTexto ?>;">
+                                    <?= $estadoTexto ?>
+                                </span>
                             </td>
                         </tr>
                         <?php endforeach; ?>
                     <?php else: ?>
                         <tr>
-                            <td colspan="6" style="padding:48px;text-align:center;">
-                                <div style="width:56px;height:56px;background:#F8F8F8;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;border:1px solid #E5E7EB;">
-                                    <i class="fas fa-warehouse" style="color:#9CA3AF;font-size:1.3rem;"></i>
-                                </div>
-                                <p style="color:#5F6673;font-weight:600;">
-                                    <?= ($buscar || $estado || $idCat) ? 'No se encontraron productos con ese criterio.' : 'No hay productos en inventario.' ?>
-                                </p>
-                                <?php if ($buscar || $estado || $idCat): ?>
-                                <a href="inventario.php" style="color:#00875F;font-size:.82rem;font-weight:600;margin-top:8px;display:inline-block;">
-                                    Ver todo el inventario
-                                </a>
-                                <?php endif; ?>
+                            <td colspan="5" style="padding:40px;text-align:center;color:var(--texto-suave);">
+                                No se encontraron productos con ese filtro.
                             </td>
                         </tr>
                     <?php endif; ?>
@@ -353,7 +338,6 @@ require_once __DIR__ . '/../layouts/sidebar.php';
         document.title = "<?= $nombreArchivoPDF ?>";
         window.print();
     }
-
     window.onafterprint = function () {
         document.title = tituloOriginal;
     };

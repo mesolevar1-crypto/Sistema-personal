@@ -390,13 +390,8 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                                             <i class="fas fa-eye" style="font-size:.75rem;"></i>
                                         </button>
 
-                                        <!-- VER FACTURA (corregido: sin target="_blank" para no abrir ventana nueva) -->
-                                        
-                                            href="factura.php?id=<?= intval($v['id_venta']) ?>"
-                                            title="Ver factura"
-                                            class="btn-accion-cuadro"
-                                            style="color:#5F6673;"
-                                        >
+                                        <!-- VER FACTURA: navega en la misma pestaña, sin target="_blank" -->
+                                        <a href="factura.php?id=<?= intval($v['id_venta']) ?>" title="Ver factura" class="btn-accion-cuadro" style="color:#5F6673;">
                                             <i class="fas fa-file-invoice" style="font-size:.75rem;"></i>
                                         </a>
 
