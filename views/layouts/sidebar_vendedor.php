@@ -161,11 +161,6 @@ $enReporte     = strpos($self, '/vendedor/reporte.php')    !== false;
 
     </nav>
 
-    <!-- Versión -->
-    <div style="border-top:1px solid rgba(255,255,255,.10);padding:14px 20px;">
-        <p style="font-size:.7rem;color:rgba(255,255,255,.35);">VentaNet v1.0 &mdash; 2026</p>
-    </div>
-
 </aside>
 
 <!-- ════════════════════════════════════
