@@ -53,7 +53,7 @@
                 <i class="fas fa-envelope" style="color:#61D0A7;"></i> soporte@ventanet.com
             </p>
             <p style="color:rgba(255,255,255,.65); font-size:.85rem;" class="flex items-center gap-3 mb-4">
-                <i class="fas fa-phone" style="color:#61D0A7;"></i> +57 300 000 0000
+                <i class="fas fa-phone" style="color:#61D0A7;"></i> +57 300 708 1694
             </p>
             <div class="flex gap-3">
                 <a href="#" style="background:rgba(255,255,255,.10);"
