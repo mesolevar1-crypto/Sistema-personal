@@ -1,7 +1,19 @@
 <?php
-session_start();
-if (!isset($_SESSION['usuario'])) { header("Location: ../usuarios/login.php"); exit; }
-if (strtolower($_SESSION['usuario']['rol']) === 'administrador') { header("Location: ../venta/index.php"); exit; }
+
+// ============================================================
+// VISTA: GESTIÓN DE VENTAS — VENDEDOR
+// Igual a la de admin, pero cada vendedor solo ve, cuenta y
+// suma SUS PROPIAS ventas (v.id_usuario = id del vendedor logueado).
+// ============================================================
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+if (!isset($_SESSION['usuario']) || strtolower($_SESSION['usuario']['rol']) !== 'vendedor') {
+    header("Location: ../usuarios/login.php");
+    exit;
+}
 
 require_once __DIR__ . '/../../config/databse.php';
 require_once __DIR__ . '/../../models/venta.php';
@@ -9,218 +21,1149 @@ require_once __DIR__ . '/../../models/venta.php';
 $database   = new Database();
 $db         = $database->conectar();
 $ventaModel = new Venta($db);
-$resumen    = $ventaModel->obtenerResumen();
-$clientes   = $ventaModel->obtenerClientes();
-$productos  = $ventaModel->obtenerProductos();
 
-$id_usuario = $_SESSION['usuario']['id_usuario'];
+// ── ID del vendedor autenticado: filtro clave de toda la vista ──
+$idUsuario = $_SESSION['usuario']['id_usuario'];
 
-// Solo las ventas del vendedor autenticado
-$sqlV = "SELECT v.id_venta, v.fecha, v.total, pc.nombre AS cliente
-         FROM venta v
-         LEFT JOIN cliente c  ON v.id_cliente = c.id_cliente
-         LEFT JOIN persona pc ON c.id_persona = pc.id_persona
-         WHERE v.id_usuario = :id
-         ORDER BY v.fecha DESC, v.id_venta DESC";
-$stmtV = $db->prepare($sqlV);
-$stmtV->bindParam(':id', $id_usuario);
-$stmtV->execute();
-$ventas = $stmtV->fetchAll(PDO::FETCH_ASSOC);
+$todasVentas = $ventaModel->obtenerTodas($idUsuario);
+$resumen     = $ventaModel->obtenerResumen($idUsuario);
+$clientes    = $ventaModel->obtenerClientes();
+$productos   = $ventaModel->obtenerProductosDisponibles();
+$unidades    = $ventaModel->obtenerUnidades();
 
-// KPIs propios
-$sqlK = "SELECT COUNT(*) AS total_ventas,
-                COALESCE(SUM(total),0) AS ingresos_total,
-                COALESCE(SUM(CASE WHEN fecha=CURDATE() THEN 1 ELSE 0 END),0) AS ventas_hoy,
-                COALESCE(SUM(CASE WHEN fecha=CURDATE() THEN total ELSE 0 END),0) AS ingresos_hoy
-         FROM venta WHERE id_usuario = :id";
-$stmtK = $db->prepare($sqlK);
-$stmtK->bindParam(':id', $id_usuario);
-$stmtK->execute();
-$kpi = $stmtK->fetch(PDO::FETCH_ASSOC);
+// ============================================================
+// PAGINACIÓN
+// ============================================================
+$porPagina   = 5;
+$totalVentas = count($todasVentas);
+$totalPaginas = (int)ceil($totalVentas / $porPagina);
+$paginaActual = max(
+    1,
+    min((int)($_GET['pagina'] ?? 1), max(1, $totalPaginas))
+);
+$offset    = ($paginaActual - 1) * $porPagina;
+$ventasPag = array_slice($todasVentas, $offset, $porPagina);
 
-$titulo = 'Mis Ventas';
+$titulo = "Panel de ventas - Vendedor";
+
 require_once __DIR__ . '/../layouts/header.php';
 require_once __DIR__ . '/../layouts/sidebar_vendedor.php';
-?>
 
+?>
 <style>
-    .ventanet-btn-primary { background:#4A8C44;color:#fff;border-radius:10px;box-shadow:0 4px 12px rgba(74,140,68,.2);transition:transform .15s,box-shadow .2s,background .2s;font-family:'Outfit',sans-serif;font-weight:600; }
-    .ventanet-btn-primary:hover { background:#376B32;transform:translateY(-2px); }
-    .ventanet-btn-danger { background:#dc2626;color:#fff;border-radius:10px;transition:transform .15s,background .2s;font-family:'Outfit',sans-serif;font-weight:600; }
-    .ventanet-btn-danger:hover { background:#b91c1c;transform:translateY(-2px); }
-    .ventanet-input { background:#fff;border:1.5px solid #C9E4C5;border-radius:10px;color:#1C2E1A;font-family:'Outfit',sans-serif;font-size:.95rem;outline:none;transition:border-color .2s,box-shadow .2s; }
-    .ventanet-input:focus { border-color:#4A8C44;box-shadow:0 0 0 4px rgba(74,140,68,.12); }
-    @keyframes modalRise { from{opacity:0;transform:translateY(20px) scale(.98);}to{opacity:1;transform:translateY(0) scale(1);} }
-    .modal-anim { animation:modalRise .3s cubic-bezier(.22,1,.36,1) forwards; }
-    .stat-card { border-radius:16px;transition:transform .2s,box-shadow .2s; }
-    .stat-card:hover { transform:translateY(-4px);box-shadow:0 10px 24px rgba(0,0,0,.08); }
-    @keyframes rowIn { from{opacity:0;transform:translateX(-8px);}to{opacity:1;transform:translateX(0);} }
-    .row-anim { animation:rowIn .3s ease-out both; }
-    .item-row { background:#f8fffe;border:1.5px solid #C9E4C5;border-radius:12px;padding:12px;margin-bottom:10px; }
+.btn-primario {
+    background:#00875F;
+    color:#fff;
+    border-radius:10px;
+    border:none;
+    font-weight:600;
+    font-family:'Outfit',sans-serif;
+    cursor:pointer;
+    transition: background .18s, transform .15s, box-shadow .18s;
+    box-shadow:0 4px 12px rgba(0,135,95,.22);
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+}
+.btn-primario:hover {
+    background:#01614B;
+    transform:translateY(-2px);
+}
+.btn-peligro {
+    background:#E53935;
+    color:#fff;
+    border-radius:10px;
+    border:none;
+    font-weight:600;
+    font-family:'Outfit',sans-serif;
+    cursor:pointer;
+    transition:background .18s;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    text-decoration:none;
+}
+.btn-peligro:hover {
+    background:#c62828;
+}
+.btn-exito {
+    background:#00875F;
+    color:#fff;
+    border-radius:10px;
+    border:none;
+    font-weight:600;
+    font-family:'Outfit',sans-serif;
+    cursor:pointer;
+    transition:background .18s;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    text-decoration:none;
+}
+.btn-exito:hover {
+    background:#01614B;
+}
+.campo-input {
+    width:100%;
+    background:#fff;
+    border:1.5px solid #E5E7EB;
+    border-radius:10px;
+    color:#171717;
+    font-family:'Outfit',sans-serif;
+    font-size:.9rem;
+    outline:none;
+    padding:9px 12px;
+    transition: border-color .2s, box-shadow .2s;
+}
+.campo-input:focus {
+    border-color:#61D0A7;
+    box-shadow:0 0 0 4px rgba(97,208,167,.15);
+}
+@keyframes modalRise {
+    from { opacity:0; transform:translateY(18px) scale(.98); }
+    to { opacity:1; transform:translateY(0) scale(1); }
+}
+.modal-anim {
+    animation: modalRise .28s cubic-bezier(.22,1,.36,1) forwards;
+}
+.kpi-card {
+    background:#fff;
+    border:1px solid #E5E7EB;
+    border-radius:14px;
+    padding:18px;
+    transition: transform .18s, box-shadow .18s;
+}
+.kpi-card:hover {
+    transform:translateY(-3px);
+    box-shadow:0 8px 24px rgba(0,135,95,.10);
+}
+.item-row {
+    background:#F8F8F8;
+    border:1.5px solid #E5E7EB;
+    border-radius:10px;
+    padding:12px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+}
+.item-row-grid {
+    display:grid;
+    grid-template-columns: minmax(0, 1.1fr) 74px 80px 88px 74px 80px 66px 96px 26px;
+    gap:8px;
+    align-items:center;
+}
+.item-row-label {
+    display:block;
+    font-size:.62rem;
+    color:#9CA3AF;
+    font-weight:700;
+    text-transform:uppercase;
+    margin-bottom:3px;
+}
+.paginacion {
+    padding:14px 20px;
+    border-top:1px solid #E5E7EB;
+    display:flex;
+    justify-content:center;
+    gap:6px;
+}
+.pag {
+    width:36px;
+    height:36px;
+    border:1px solid #E5E7EB;
+    border-radius:9px;
+    background:#fff;
+    color:#5F6673;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-decoration:none;
+}
+.pag:hover, .pag.activa {
+    background:#00875F;
+    color:#fff;
+}
+.pag.deshabilitado {
+    opacity:.4;
+    pointer-events:none;
+}
+.estado-badge {
+    padding:3px 10px;
+    border-radius:20px;
+    font-size:.7rem;
+    font-weight:700;
+}
+.estado-activa  { background:#DDF5EC; color:#00875F; }
+.estado-anulada { background:#fde8e8; color:#E53935; }
+
+.btn-accion-cuadro {
+    width:32px;
+    height:32px;
+    border-radius:8px;
+    border:1px solid #E5E7EB;
+    background:#fff;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-decoration:none;
+    transition: background .15s, transform .15s;
+}
+.btn-accion-cuadro:hover { transform:translateY(-2px); }
+.btn-accion-cuadro.deshabilitado {
+    opacity:.4;
+    cursor:not-allowed;
+    pointer-events:none;
+}
+
+@media (max-width:900px) {
+    .item-row-grid {
+        grid-template-columns: 1fr;
+    }
+}
 </style>
 
-<div class="font-sans-ventanet text-[#1C2E1A] max-w-7xl mx-auto">
-
-    <div class="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+<div class="max-w-7xl mx-auto font-sans-ventanet">
+    <!-- ENCABEZADO -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between mb-7 gap-4">
         <div>
-            <h2 class="text-5xl font-extrabold font-serif-ventanet text-green-800 leading-tight">Mis Ventas</h2>
-            <p class="text-[#4E6B4A] text-sm mt-1 font-medium tracking-wide">Registra y consulta tus ventas realizadas</p>
+            <h2 class="text-3xl font-bold font-serif-ventanet" style="color:#01614B;">
+                Mis Ventas
+            </h2>
+            <p class="text-sm mt-1" style="color:#5F6673;">
+                Registra y administra las ventas que tú has realizado a tus clientes.
+            </p>
         </div>
-        <button onclick="openModal('modalCrear')" class="ventanet-btn-primary px-5 py-2.5 flex items-center gap-2 self-start md:self-auto">
-            <i class="fas fa-plus-circle"></i> Nueva Venta
+        <button type="button" onclick="abrirModalNuevaVenta()" class="btn-primario px-5 py-2.5">
+            <i class="fas fa-cash-register"></i>
+            Nueva Venta
         </button>
     </div>
 
+    <!-- ALERTAS -->
     <?php if (isset($_SESSION['alert'])): ?>
-    <script>
-        document.addEventListener('DOMContentLoaded', function(){
+        <script>
+        document.addEventListener('DOMContentLoaded', function () {
             Swal.fire({
-                icon:'<?= htmlspecialchars($_SESSION['alert']['icon']) ?>',
-                title:'<?= htmlspecialchars($_SESSION['alert']['title']) ?>',
-                text:'<?= htmlspecialchars($_SESSION['alert']['text']) ?>',
-                confirmButtonText:'Entendido',confirmButtonColor:'#4A8C44',
-                customClass:{popup:'rounded-[20px]',confirmButton:'rounded-lg px-6 py-2.5 font-semibold'}
+                icon: <?= json_encode($_SESSION['alert']['icon']) ?>,
+                title: <?= json_encode($_SESSION['alert']['title']) ?>,
+                text: <?= json_encode($_SESSION['alert']['text']) ?>,
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: '#00875F',
+                customClass: {
+                    popup: 'rounded-[20px]',
+                    confirmButton: 'rounded-lg px-6 py-2.5'
+                }
             });
         });
-    </script>
+        </script>
     <?php unset($_SESSION['alert']); endif; ?>
 
-    <!-- KPIs solo del vendedor -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div class="stat-card bg-white border border-[#C9E4C5] p-5">
-            <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 rounded-xl bg-[#DFF0DC] flex items-center justify-center"><i class="fas fa-receipt text-[#4A8C44] text-lg"></i></div><span class="text-xs font-bold text-[#4E6B4A] uppercase tracking-wide">Mis Ventas</span></div>
-            <p class="text-3xl font-extrabold text-[#1C2E1A]"><?= intval($kpi['total_ventas']??0) ?></p>
-            <p class="text-xs text-[#96B092] mt-1">ventas registradas</p>
+    <!-- KPIs (todos filtrados a MIS ventas) -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
+        <div class="kpi-card">
+            <div class="flex items-center gap-3 mb-3">
+                <div style="width:40px;height:40px;background:#DDF5EC;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-receipt" style="color:#00875F;"></i>
+                </div>
+                <span style="font-size:.72rem;font-weight:700;color:#5F6673;text-transform:uppercase;">
+                    Mis ventas
+                </span>
+            </div>
+            <p style="font-size:1.8rem;font-weight:800;color:#171717;line-height:1;">
+                <?= intval($resumen['total_ventas'] ?? 0) ?>
+            </p>
+            <p style="font-size:.72rem;color:#9CA3AF;margin-top:3px;">histórico</p>
         </div>
-        <div class="stat-card bg-white border border-[#C9E4C5] p-5">
-            <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 rounded-xl bg-[#DFF0DC] flex items-center justify-center"><i class="fas fa-dollar-sign text-[#4A8C44] text-lg"></i></div><span class="text-xs font-bold text-[#4E6B4A] uppercase tracking-wide">Mis Ingresos</span></div>
-            <p class="text-2xl font-extrabold text-[#1C2E1A]">$<?= number_format($kpi['ingresos_total']??0,0,',','.') ?></p>
-            <p class="text-xs text-[#96B092] mt-1">acumulado</p>
+        <div class="kpi-card">
+            <div class="flex items-center gap-3 mb-3">
+                <div style="width:40px;height:40px;background:#DDF5EC;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-dollar-sign" style="color:#00875F;"></i>
+                </div>
+                <span style="font-size:.72rem;font-weight:700;color:#5F6673;text-transform:uppercase;">
+                    Mis ingresos
+                </span>
+            </div>
+            <p style="font-size:1.4rem;font-weight:800;color:#171717;line-height:1;">
+                <?= number_format($resumen['ingresos_total'] ?? 0, 0, ',', '.') ?>
+            </p>
+            <p style="font-size:.72rem;color:#9CA3AF;margin-top:3px;">acumulado</p>
         </div>
-        <div class="stat-card bg-white border border-[#C9E4C5] p-5">
-            <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 rounded-xl bg-[#DFF0DC] flex items-center justify-center"><i class="fas fa-calendar-day text-[#4A8C44] text-lg"></i></div><span class="text-xs font-bold text-[#4E6B4A] uppercase tracking-wide">Ventas Hoy</span></div>
-            <p class="text-3xl font-extrabold text-[#1C2E1A]"><?= intval($kpi['ventas_hoy']??0) ?></p>
-            <p class="text-xs text-[#96B092] mt-1">ventas del dia</p>
+        <div class="kpi-card">
+            <div class="flex items-center gap-3 mb-3">
+                <div style="width:40px;height:40px;background:#fffbeb;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-calendar-day" style="color:#FFB51B;"></i>
+                </div>
+                <span style="font-size:.72rem;font-weight:700;color:#5F6673;text-transform:uppercase;">
+                    Ventas hoy
+                </span>
+            </div>
+            <p style="font-size:1.8rem;font-weight:800;color:#171717;line-height:1;">
+                <?= intval($resumen['ventas_hoy'] ?? 0) ?>
+            </p>
+            <p style="font-size:.72rem;color:#9CA3AF;margin-top:3px;">del día</p>
         </div>
-        <div class="stat-card bg-white border border-[#C9E4C5] p-5">
-            <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 rounded-xl bg-[#DFF0DC] flex items-center justify-center"><i class="fas fa-coins text-[#4A8C44] text-lg"></i></div><span class="text-xs font-bold text-[#4E6B4A] uppercase tracking-wide">Ingresos Hoy</span></div>
-            <p class="text-2xl font-extrabold text-[#1C2E1A]">$<?= number_format($kpi['ingresos_hoy']??0,0,',','.') ?></p>
-            <p class="text-xs text-[#96B092] mt-1">del dia de hoy</p>
+        <div class="kpi-card">
+            <div class="flex items-center gap-3 mb-3">
+                <div style="width:40px;height:40px;background:#fffbeb;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-coins" style="color:#FFB51B;"></i>
+                </div>
+                <span style="font-size:.72rem;font-weight:700;color:#5F6673;text-transform:uppercase;">
+                    Ingresos hoy
+                </span>
+            </div>
+            <p style="font-size:1.4rem;font-weight:800;color:#171717;line-height:1;">
+                <?= number_format($resumen['ingresos_hoy'] ?? 0, 0, ',', '.') ?>
+            </p>
+            <p style="font-size:.72rem;color:#9CA3AF;margin-top:3px;">del día</p>
         </div>
     </div>
 
-    <!-- Tabla solo con las ventas del vendedor -->
-    <div class="overflow-x-auto rounded-[16px] border border-[#C9E4C5] bg-[#ebf7ea]">
-        <table class="w-full text-left border-collapse">
-            <thead class="bg-[#dcf0d8] text-[#3c5938] border-b border-[#C9E4C5]">
-                <tr>
-                    <th class="p-4 font-bold text-[0.8rem] tracking-wide uppercase">Fecha</th>
-                    <th class="p-4 font-bold text-[0.8rem] tracking-wide uppercase">Cliente</th>
-                    <th class="p-4 font-bold text-[0.8rem] tracking-wide uppercase">Vendedor</th>
-                    <th class="p-4 font-bold text-[0.8rem] tracking-wide uppercase text-right">Total</th>
-                    <th class="p-4 font-bold text-[0.8rem] tracking-wide uppercase text-center">Detalle</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-[#C9E4C5]">
-                <?php if (!empty($ventas)): ?>
-                    <?php foreach ($ventas as $idx => $v): ?>
-                    <tr class="row-anim hover:bg-[#e4f5e2] transition-colors" style="animation-delay:<?= $idx*.04 ?>s">
-                        <td class="p-4 text-[#1C2E1A] font-medium text-sm"><?= !empty($v['fecha']) ? date('d/m/Y', strtotime($v['fecha'])) : '---' ?></td>
-                        <td class="p-4 font-semibold text-[#1C2E1A] text-sm"><?= htmlspecialchars($v['cliente'] ?? 'Sin cliente') ?></td>
-                        <td class="p-4 font-semibold text-[#1C2E1A] text-sm"><?= htmlspecialchars($nombre) ?></td>
-                        <td class="p-4 text-right"><span class="text-lg font-extrabold text-[#4A8C44]">$<?= number_format($v['total'],0,',','.') ?></span></td>
-                        <td class="p-4 text-center">
-                            <button type="button" onclick="verDetalle(<?= $v['id_venta'] ?>)"
-                                class="w-8 h-8 rounded-lg border border-[#C9E4C5] bg-white text-[#4A8C44] hover:bg-[#DFF0DC] hover:border-[#4A8C44] transition-all flex items-center justify-center shadow-sm mx-auto">
-                                <i class="fas fa-eye text-xs"></i>
-                            </button>
-                        </td>
+    <!-- TABLA -->
+    <div class="bg-white rounded-2xl border overflow-hidden" style="border-color:#E5E7EB;">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr style="background:#01614B;">
+                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide" style="color:#fff;">Fecha</th>
+                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide" style="color:#fff;">Cliente</th>
+                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-right" style="color:#fff;">Total</th>
+                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-right" style="color:#fff;">Ganancia</th>
+                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-right" style="color:#fff;">Margen</th>
+                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-center" style="color:#fff;">Estado</th>
+                        <th class="px-5 py-3 text-xs font-bold uppercase tracking-wide text-center" style="color:#fff;">Acciones</th>
                     </tr>
-                    <?php endforeach; ?>
-                <?php else: ?>
-                    <tr><td colspan="5" class="p-16 text-center">
-                        <div class="w-20 h-20 mx-auto bg-[#e4f5e2] rounded-full flex items-center justify-center text-[#96B092] text-3xl mb-4 border-4 border-white shadow"><i class="fas fa-cash-register"></i></div>
-                        <p class="text-[#4E6B4A] font-semibold text-lg">Aun no tienes ventas registradas</p>
-                    </td></tr>
-                <?php endif; ?>
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    <?php if (!empty($ventasPag)): ?>
+                        <?php foreach ($ventasPag as $v):
+                            $gan    = (float)($v['ganancia'] ?? 0);
+                            $total  = (float)($v['total']   ?? 0);
+                            $margen = $total > 0 ? round(($gan / $total) * 100, 1) : 0;
+                            $cg     = $gan >= 0 ? '#00875F' : '#E53935';
+                            $activa = (int)$v['estado'] === 1;
+                        ?>
+                            <tr
+                                style="border-bottom:1px solid #E5E7EB; transition:background .15s;"
+                                onmouseover="this.style.background='#F8F8F8'"
+                                onmouseout="this.style.background=''"
+                            >
+                                <td class="px-5 py-3.5 text-sm font-medium" style="color:#171717;">
+                                    <?= !empty($v['fecha']) ? date('d/m/Y', strtotime($v['fecha'])) : '---' ?>
+                                </td>
+                                <td class="px-5 py-3.5 text-sm font-bold" style="color:#171717;">
+                                    <?= htmlspecialchars($v['cliente'] ?? 'Sin cliente') ?>
+                                </td>
+                                <td class="px-5 py-3.5 text-right">
+                                    <span style="font-size:1rem;font-weight:800;color:#00875F;">
+                                        <?= number_format($total, 0, ',', '.') ?>
+                                    </span>
+                                </td>
+                                <td class="px-5 py-3.5 text-right">
+                                    <span style="font-size:.9rem;font-weight:800;color:<?= $cg ?>;">
+                                        $<?= number_format(abs($gan), 0, ',', '.') ?>
+                                    </span>
+                                </td>
+                                <td class="px-5 py-3.5 text-right">
+                                    <span style="font-size:.9rem;font-weight:800;color:<?= $cg ?>;">
+                                        <?= $margen ?>%
+                                    </span>
+                                </td>
+                                <td class="px-5 py-3.5 text-center">
+                                    <span class="estado-badge <?= $activa ? 'estado-activa' : 'estado-anulada' ?>">
+                                        <?= $activa ? 'Activa' : 'Anulada' ?>
+                                    </span>
+                                </td>
+                                <td class="px-5 py-3.5">
+                                    <div style="display:flex;align-items:center;justify-content:center;gap:8px;">
+
+                                        <!-- VER DETALLE -->
+                                        <button
+                                            type="button"
+                                            onclick="verDetalle(<?= intval($v['id_venta']) ?>)"
+                                            title="Ver detalle"
+                                            class="btn-accion-cuadro"
+                                            style="color:#00875F;"
+                                        >
+                                            <i class="fas fa-eye" style="font-size:.75rem;"></i>
+                                        </button>
+
+                                        <!-- VER FACTURA -->
+                                        <a href="factura.php?id=<?= intval($v['id_venta']) ?>" title="Ver factura" class="btn-accion-cuadro" style="color:#5F6673;">
+                                            <i class="fas fa-file-invoice" style="font-size:.75rem;"></i>
+                                        </a>
+
+                                        <!-- ANULAR / REACTIVAR según el estado actual -->
+                                        <?php if ($activa): ?>
+                                            <button
+                                                type="button"
+                                                onclick="abrirModalEliminar(<?= intval($v['id_venta']) ?>)"
+                                                title="Anular venta"
+                                                class="btn-accion-cuadro"
+                                                style="border-color:#fde8e8;color:#E53935;"
+                                            >
+                                                <i class="fas fa-ban" style="font-size:.75rem;"></i>
+                                            </button>
+                                        <?php else: ?>
+                                            <button
+                                                type="button"
+                                                onclick="abrirModalReactivar(<?= intval($v['id_venta']) ?>)"
+                                                title="Reactivar venta"
+                                                class="btn-accion-cuadro"
+                                                style="border-color:#DDF5EC;color:#00875F;"
+                                            >
+                                                <i class="fas fa-rotate-left" style="font-size:.75rem;"></i>
+                                            </button>
+                                        <?php endif; ?>
+
+                                    </div>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <tr>
+                            <td colspan="7" style="padding:48px;text-align:center;">
+                                <div style="width:56px;height:56px;background:#F8F8F8;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;border:1px solid #E5E7EB;">
+                                    <i class="fas fa-receipt" style="color:#9CA3AF;font-size:1.3rem;"></i>
+                                </div>
+                                <p style="color:#5F6673;font-weight:600;">
+                                    Aún no has registrado ventas.
+                                </p>
+                                <p style="color:#9CA3AF;font-size:.85rem;margin-top:4px;">
+                                    Registra tu primera venta usando el botón superior.
+                                </p>
+                            </td>
+                        </tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- PAGINACIÓN -->
+        <?php if ($totalVentas > $porPagina): ?>
+            <nav class="paginacion">
+                <a class="pag <?= $paginaActual <= 1 ? 'deshabilitado' : '' ?>" href="?pagina=<?= max(1, $paginaActual - 1) ?>">«</a>
+                <?php for ($i = 1; $i <= $totalPaginas; $i++): ?>
+                    <a class="pag <?= $i === $paginaActual ? 'activa' : '' ?>" href="?pagina=<?= $i ?>"><?= $i ?></a>
+                <?php endfor; ?>
+                <a class="pag <?= $paginaActual >= $totalPaginas ? 'deshabilitado' : '' ?>" href="?pagina=<?= min($totalPaginas, $paginaActual + 1) ?>">»</a>
+            </nav>
+        <?php endif; ?>
     </div>
 </div>
 
-<!-- MODAL NUEVA VENTA -->
-<div id="modalCrear" class="fixed inset-0 bg-[#1C2E1A]/40 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-[20px] w-full max-w-2xl shadow-2xl modal-anim overflow-hidden max-h-[90vh] flex flex-col">
-        <div class="px-8 py-5 border-b border-[#C9E4C5] flex justify-between items-center bg-[#f2fcf1] flex-shrink-0">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-[#4A8C44] text-white flex items-center justify-center shadow-md"><i class="fas fa-cash-register"></i></div>
-                <h3 class="text-xl font-serif-ventanet text-[#1C2E1A] mt-1">Nueva Venta</h3>
+<!-- ============================================================
+     MODAL NUEVA VENTA
+============================================================ -->
+<div id="modalCrear" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,.50);backdrop-filter:blur(4px);">
+    <div class="bg-white rounded-2xl w-full shadow-2xl modal-anim overflow-hidden" style="max-width:1120px;max-height:92vh;display:flex;flex-direction:column;">
+
+        <!-- CABECERA -->
+        <div style="background:#F8F8F8;border-bottom:1px solid #E5E7EB;padding:18px 24px;display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:38px;height:38px;background:#00875F;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-cash-register" style="color:#fff;font-size:.9rem;"></i>
+                </div>
+                <div>
+                    <h3 class="font-serif-ventanet" style="font-size:1.1rem;color:#171717;">
+                        Nueva Venta
+                    </h3>
+                    <p style="font-size:.75rem;color:#5F6673;margin-top:2px;">
+                        Selecciona un cliente activo, luego el producto, y escribe el precio, la cantidad, el descuento (si aplica) y la unidad de venta.
+                    </p>
+                </div>
             </div>
-            <button onclick="cancelarVenta()" class="text-[#96B092] hover:text-[#4A8C44] transition-colors"><i class="fas fa-times text-xl"></i></button>
+            <button type="button" onclick="cerrarModalCrear()" style="background:none;border:none;cursor:pointer;color:#9CA3AF;font-size:1.2rem;">
+                <i class="fas fa-times"></i>
+            </button>
         </div>
-        <form action="../../controllers/VentaController.php?accion=registrar" method="POST" class="p-8 space-y-5 overflow-y-auto">
-            <div class="relative">
-                <label class="block text-[.85rem] font-bold text-[#1C2E1A] mb-1.5">Cliente *</label>
-                <?php if (empty($clientes)): ?>
-                <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-amber-700 text-sm"><i class="fas fa-exclamation-triangle mr-2"></i>No hay clientes activos.</div>
-                <?php else: ?>
-                <select name="id_cliente" id="selectCliente" required class="ventanet-input w-full px-4 py-2.5 cursor-pointer appearance-none">
-                    <option value="">-- Selecciona un cliente --</option>
-                    <?php foreach ($clientes as $c): ?><option value="<?= $c['id_cliente'] ?>"><?= htmlspecialchars($c['nombre']) ?></option><?php endforeach; ?>
-                </select>
-                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 pt-6 text-[#4A8C44]"><i class="fas fa-chevron-down text-sm"></i></div>
-                <?php endif; ?>
+
+        <!-- FORMULARIO -->
+        <form
+            id="formVenta"
+            action="../../controllers/VentaController.php?accion=registrar"
+            method="POST"
+            style="padding:24px;display:flex;flex-direction:column;gap:18px;overflow-y:auto;flex:1;"
+        >
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- CLIENTE -->
+                <div>
+                    <label style="display:block;font-size:.83rem;font-weight:700;color:#171717;margin-bottom:5px;">
+                        Cliente *
+                    </label>
+                    <?php if (empty($clientes)): ?>
+                        <div style="background:#fffbeb;border:1px solid #FFB51B;border-radius:10px;padding:12px 14px;color:#92400E;font-size:.85rem;">
+                            <i class="fas fa-exclamation-triangle" style="color:#FFB51B;margin-right:6px;"></i>
+                            No hay clientes activos disponibles. Registra o activa un cliente primero.
+                        </div>
+                    <?php else: ?>
+                        <div style="position:relative;">
+                            <select
+                                id="selectCliente"
+                                name="id_cliente"
+                                required
+                                class="campo-input"
+                                style="appearance:none;cursor:pointer;padding-right:36px;"
+                            >
+                                <option value="">Selecciona un cliente</option>
+                                <?php foreach ($clientes as $cl): ?>
+                                    <option value="<?= intval($cl['id_cliente']) ?>">
+                                        <?= htmlspecialchars($cl['nombre'] ?? 'Cliente') ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <i class="fas fa-chevron-down" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);color:#00875F;font-size:.75rem;pointer-events:none;"></i>
+                        </div>
+                    <?php endif; ?>
+                </div>
+
+                <!-- MÉTODO DE PAGO -->
+                <div>
+                    <label style="display:block;font-size:.83rem;font-weight:700;color:#171717;margin-bottom:5px;">
+                        Método de pago
+                    </label>
+                    <div style="position:relative;">
+                        <select name="metodo_pago" class="campo-input" style="appearance:none;cursor:pointer;padding-right:36px;">
+                            <option value="efectivo">Efectivo</option>
+                            <option value="tarjeta">Tarjeta</option>
+                            <option value="transferencia">Transferencia</option>
+                        </select>
+                        <i class="fas fa-chevron-down" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);color:#00875F;font-size:.75rem;pointer-events:none;"></i>
+                    </div>
+                </div>
             </div>
+
+            <!-- PRODUCTOS -->
             <div>
-                <div class="flex items-center justify-between mb-3">
-                    <label class="block text-[.85rem] font-bold text-[#1C2E1A]">Productos *</label>
-                    <button type="button" onclick="agregarItem()" class="text-xs font-bold text-[#4A8C44] border border-[#C9E4C5] bg-[#f2fcf1] hover:bg-[#DFF0DC] px-3 py-1.5 rounded-lg transition-all flex items-center gap-1"><i class="fas fa-plus text-xs"></i> Agregar</button>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                    <div>
+                        <label style="font-size:.83rem;font-weight:700;color:#171717;">
+                            Productos *
+                        </label>
+                        <p style="font-size:.72rem;color:#9CA3AF;margin-top:2px;">
+                            El precio de venta, el descuento, la unidad, el contenido y su unidad los defines tú según lo que se acordó con el cliente.
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onclick="agregarFila()"
+                        style="background:#DDF5EC;color:#00875F;border:1px solid #61D0A7;border-radius:8px;padding:6px 12px;font-size:.8rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;"
+                    >
+                        <i class="fas fa-plus" style="font-size:.7rem;"></i>
+                        Agregar producto
+                    </button>
                 </div>
-                <div id="itemsContainer" class="space-y-3"></div>
-                <div class="mt-4 flex items-center justify-between bg-[#f2fcf1] border border-[#C9E4C5] rounded-xl px-5 py-3">
-                    <span class="font-bold text-[#1C2E1A] text-sm">TOTAL</span>
-                    <span class="text-2xl font-extrabold text-[#4A8C44]" id="totalVenta">$0</span>
-                </div>
+                <div id="filasProductos" style="display:flex;flex-direction:column;gap:10px;"></div>
             </div>
-            <div class="flex justify-end gap-3 pt-5 border-t border-[#C9E4C5]">
-                <button type="button" onclick="cancelarVenta()" class="px-6 py-2 text-[#4E6B4A] font-semibold bg-white border border-[#C9E4C5] hover:bg-[#F4FBF3] rounded-xl transition-colors">Cancelar</button>
-                <button type="submit" class="ventanet-btn-primary px-8 py-2"><i class="fas fa-check mr-2"></i>Confirmar Venta</button>
+
+            <!-- TOTAL -->
+            <div style="display:flex;align-items:center;justify-content:space-between;background:#DDF5EC;border:1px solid #61D0A7;border-radius:12px;padding:13px 18px;">
+                <span style="font-size:.82rem;font-weight:700;color:#01614B;text-transform:uppercase;letter-spacing:.04em;">
+                    Total de la venta
+                </span>
+                <span id="totalVenta" style="font-size:1.5rem;font-weight:800;color:#00875F;">
+                    $0
+                </span>
+            </div>
+
+            <!-- BOTONES -->
+            <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:12px;border-top:1px solid #E5E7EB;">
+                <button type="button" onclick="cerrarModalCrear()" style="padding:9px 20px;border-radius:9px;border:1px solid #E5E7EB;background:#fff;color:#5F6673;font-weight:600;cursor:pointer;">
+                    Cancelar
+                </button>
+                <button type="submit" class="btn-primario" style="padding:9px 24px;">
+                    <i class="fas fa-check"></i>
+                    Confirmar Venta
+                </button>
             </div>
         </form>
     </div>
 </div>
 
-<!-- MODAL DETALLE -->
-<div id="modalDetalle" class="fixed inset-0 bg-[#1C2E1A]/40 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-[20px] w-full max-w-lg shadow-2xl modal-anim overflow-hidden">
-        <div class="px-8 py-5 border-b border-[#C9E4C5] flex justify-between items-center bg-[#f2fcf1]">
-            <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-[#4A8C44] text-white flex items-center justify-center shadow-md"><i class="fas fa-receipt"></i></div><h3 class="text-xl font-serif-ventanet text-[#1C2E1A] mt-1">Detalle de Venta</h3></div>
-            <button onclick="closeModal('modalDetalle')" class="text-[#96B092] hover:text-[#4A8C44] transition-colors"><i class="fas fa-times text-xl"></i></button>
+<!-- ============================================================
+     MODAL DETALLE
+============================================================ -->
+<div id="modalDetalle" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,.50);backdrop-filter:blur(4px);">
+    <div class="bg-white rounded-2xl w-full shadow-2xl modal-anim overflow-hidden" style="max-width:820px;">
+        <div style="background:#F8F8F8;border-bottom:1px solid #E5E7EB;padding:18px 24px;display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:38px;height:38px;background:#00875F;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-receipt" style="color:#fff;font-size:.9rem;"></i>
+                </div>
+                <div>
+                    <h3 class="font-serif-ventanet" style="font-size:1.1rem;color:#171717;">
+                        Detalle de Venta
+                    </h3>
+                    <p id="detalleEncabezado" style="font-size:.78rem;color:#5F6673;"></p>
+                </div>
+            </div>
+            <button type="button" onclick="cerrarModal('modalDetalle')" style="background:none;border:none;cursor:pointer;color:#9CA3AF;font-size:1.2rem;">
+                <i class="fas fa-times"></i>
+            </button>
         </div>
-        <div class="p-8" id="detalleContenido"><div class="text-center py-8"><i class="fas fa-spinner fa-spin text-[#4A8C44] text-2xl"></i></div></div>
+        <div id="detalleCuerpo" style="padding:24px;max-height:500px;overflow-y:auto;">
+            <div style="text-align:center;padding:32px 0;">
+                <i class="fas fa-spinner fa-spin" style="color:#00875F;font-size:1.5rem;"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================
+     MODAL ANULAR
+============================================================ -->
+<div id="modalEliminar" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,.55);backdrop-filter:blur(4px);">
+    <div class="bg-white rounded-2xl w-full shadow-2xl modal-anim overflow-hidden" style="max-width:420px;">
+        <div style="padding:36px 32px;text-align:center;">
+            <div style="width:68px;height:68px;background:#fde8e8;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+                <i class="fas fa-exclamation-triangle" style="color:#E53935;font-size:1.7rem;"></i>
+            </div>
+            <h3 class="font-serif-ventanet" style="font-size:1.3rem;color:#171717;margin-bottom:8px;">
+                Anular Venta
+            </h3>
+            <p style="color:#5F6673;font-size:.9rem;">
+                El registro histórico se conserva y el inventario vendido será devuelto al stock.
+            </p>
+        </div>
+        <div style="background:#F8F8F8;border-top:1px solid #E5E7EB;padding:16px 24px;display:flex;justify-content:center;gap:10px;">
+            <button type="button" onclick="cerrarModal('modalEliminar')" style="padding:9px 20px;border-radius:9px;border:1px solid #E5E7EB;background:#fff;color:#5F6673;font-weight:600;cursor:pointer;">
+                Cancelar
+            </button>
+            <a id="linkEliminar" href="#" class="btn-peligro" style="padding:9px 24px;">
+                Sí, anular
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================
+     MODAL REACTIVAR
+============================================================ -->
+<div id="modalReactivar" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,.55);backdrop-filter:blur(4px);">
+    <div class="bg-white rounded-2xl w-full shadow-2xl modal-anim overflow-hidden" style="max-width:420px;">
+        <div style="padding:36px 32px;text-align:center;">
+            <div style="width:68px;height:68px;background:#DDF5EC;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+                <i class="fas fa-rotate-left" style="color:#00875F;font-size:1.5rem;"></i>
+            </div>
+            <h3 class="font-serif-ventanet" style="font-size:1.3rem;color:#171717;margin-bottom:8px;">
+                Reactivar Venta
+            </h3>
+            <p style="color:#5F6673;font-size:.9rem;">
+                La venta volverá a estar activa y el inventario se descontará de nuevo. Si no hay stock suficiente, no se podrá reactivar.
+            </p>
+        </div>
+        <div style="background:#F8F8F8;border-top:1px solid #E5E7EB;padding:16px 24px;display:flex;justify-content:center;gap:10px;">
+            <button type="button" onclick="cerrarModal('modalReactivar')" style="padding:9px 20px;border-radius:9px;border:1px solid #E5E7EB;background:#fff;color:#5F6673;font-weight:600;cursor:pointer;">
+                Cancelar
+            </button>
+            <a id="linkReactivar" href="#" class="btn-exito" style="padding:9px 24px;">
+                Sí, reactivar
+            </a>
+        </div>
     </div>
 </div>
 
 <script>
-    var productosDisponibles = <?= json_encode($productos) ?>;
-    var itemCount = 0;
-    function openModal(id)  { document.getElementById(id).classList.remove('hidden'); }
-    function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-    function cancelarVenta() { document.getElementById('itemsContainer').innerHTML=''; itemCount=0; document.getElementById('totalVenta').textContent='$0'; closeModal('modalCrear'); }
-    function agregarItem() {
-        var idx=itemCount++; var options='<option value="">-- Producto --</option>';
-        productosDisponibles.forEach(function(p){ var sl=p.stock>0?' ['+p.stock+' uds.]':' [AGOTADO]'; var dis=p.stock<=0?' disabled':''; options+='<option value="'+p.id_producto+'" data-precio="'+p.precio+'" data-stock="'+p.stock+'"'+dis+'>'+p.nombre+' ($'+Number(p.precio).toLocaleString('es-CO')+')'+sl+'</option>'; });
-        var div=document.createElement('div'); div.className='item-row flex items-center gap-3'; div.id='item-'+idx;
-        div.innerHTML='<div class="flex-1"><select name="id_producto[]" onchange="actualizarSubtotal('+idx+')" class="ventanet-input w-full px-3 py-2 text-sm">'+options+'</select></div><div class="w-20"><input type="number" name="cantidad[]" id="cant-'+idx+'" min="1" value="1" onchange="actualizarSubtotal('+idx+')" class="ventanet-input w-full px-3 py-2 text-sm text-center"></div><div class="w-28 text-right"><input type="hidden" name="subtotal[]" id="sub-'+idx+'" value="0"><span id="sub-display-'+idx+'" class="font-bold text-[#4A8C44] text-sm">$0</span></div><button type="button" onclick="eliminarItem('+idx+')" class="w-7 h-7 rounded-lg bg-red-50 text-red-400 hover:bg-red-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-times text-xs"></i></button>';
-        document.getElementById('itemsContainer').appendChild(div); calcularTotal();
+// ============================================================
+// DATOS DESDE PHP
+// ============================================================
+var productos =
+    <?= json_encode($productos, JSON_UNESCAPED_UNICODE) ?>;
+
+var unidades =
+    <?= json_encode($unidades, JSON_UNESCAPED_UNICODE) ?>;
+
+var filaCount = 0;
+
+// ============================================================
+// GENERAR OPCIONES DE UNIDAD (catálogo `unidades_medida`)
+// ============================================================
+function generarOpcionesUnidad(placeholder) {
+    var texto = placeholder || 'Unidad';
+    var html = '<option value="">' + escapeHtml(texto) + '</option>';
+    unidades.forEach(function (u) {
+        html += '<option value="' + u.id_unidad + '">' +
+            escapeHtml(u.nombre || 'Unidad') + '</option>';
+    });
+    return html;
+}
+
+// ============================================================
+// MODALES
+// ============================================================
+function abrirModal(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.remove('hidden');
+}
+
+function cerrarModal(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
+}
+
+function abrirModalNuevaVenta() {
+    abrirModal('modalCrear');
+    var filas = document.getElementById('filasProductos');
+    if (filas && filas.children.length === 0) {
+        agregarFila();
     }
-    function eliminarItem(idx){ var el=document.getElementById('item-'+idx); if(el){el.remove();calcularTotal();} }
-    function actualizarSubtotal(idx){ var sel=document.querySelector('#item-'+idx+' select'); var cant=parseInt(document.getElementById('cant-'+idx).value)||0; var precio=0,stock=0; if(sel&&sel.selectedOptions[0]){precio=parseFloat(sel.selectedOptions[0].dataset.precio)||0;stock=parseInt(sel.selectedOptions[0].dataset.stock)||0;} if(cant>stock&&stock>0){document.getElementById('cant-'+idx).value=stock;cant=stock;} document.getElementById('cant-'+idx).max=stock; var sub=precio*cant; document.getElementById('sub-'+idx).value=sub; document.getElementById('sub-display-'+idx).textContent='$'+sub.toLocaleString('es-CO'); calcularTotal(); }
-    function calcularTotal(){ var t=0; document.querySelectorAll('input[name="subtotal[]"]').forEach(function(i){t+=parseFloat(i.value)||0;}); document.getElementById('totalVenta').textContent='$'+t.toLocaleString('es-CO'); }
-    function verDetalle(id){ openModal('modalDetalle'); document.getElementById('detalleContenido').innerHTML='<div class="text-center py-8"><i class="fas fa-spinner fa-spin text-[#4A8C44] text-2xl"></i></div>'; fetch('../../controllers/VentaController.php?accion=detalle&id='+id).then(function(r){return r.json();}).then(function(data){ if(!data.length){document.getElementById('detalleContenido').innerHTML='<p class="text-center text-[#96B092] py-8">Sin productos.</p>';return;} var html='<div class="space-y-3">'; data.forEach(function(d){html+='<div class="flex items-center justify-between py-2 border-b border-[#C9E4C5]"><div><p class="font-bold text-[#1C2E1A] text-sm">'+d.producto+'</p><p class="text-xs text-[#96B092]">Cantidad: '+d.cantidad+' x $'+Number(d.precio).toLocaleString('es-CO')+'</p></div><span class="font-extrabold text-[#4A8C44]">$'+Number(d.subtotal).toLocaleString('es-CO')+'</span></div>';}); html+='</div>'; document.getElementById('detalleContenido').innerHTML=html; }).catch(function(){document.getElementById('detalleContenido').innerHTML='<p class="text-center text-red-500 py-8">Error.</p>';}); }
-    document.querySelector('button[onclick="openModal(\'modalCrear\')"]').addEventListener('click',function(){setTimeout(function(){if(document.getElementById('itemsContainer').children.length===0)agregarItem();},100);});
-    var buscarClienteInput=document.getElementById('buscarCliente');
-    if(buscarClienteInput){buscarClienteInput.addEventListener('input',function(){var q=this.value.toLowerCase().trim();var sel=document.getElementById('selectCliente');var opts=sel.querySelectorAll('option');var vis=0;opts.forEach(function(o){if(!o.value)return;var ok=o.textContent.toLowerCase().includes(q);o.style.display=ok?'':'none';if(ok)vis++;});var ne=document.getElementById('clienteNoEncontrado');if(ne)ne.classList.toggle('hidden',vis>0||q==='');});}
+}
+
+function cerrarModalCrear() {
+    cerrarModal('modalCrear');
+    var filas = document.getElementById('filasProductos');
+    if (filas) filas.innerHTML = '';
+    var cliente = document.getElementById('selectCliente');
+    if (cliente) cliente.value = '';
+    var total = document.getElementById('totalVenta');
+    if (total) total.textContent = '$0';
+    filaCount = 0;
+}
+
+// ============================================================
+// ANULAR
+// ============================================================
+function abrirModalEliminar(id) {
+    document.getElementById('linkEliminar').href =
+        '../../controllers/VentaController.php?accion=eliminar&id=' +
+        encodeURIComponent(id);
+    abrirModal('modalEliminar');
+}
+
+// ============================================================
+// REACTIVAR
+// ============================================================
+function abrirModalReactivar(id) {
+    document.getElementById('linkReactivar').href =
+        '../../controllers/VentaController.php?accion=reactivar&id=' +
+        encodeURIComponent(id);
+    abrirModal('modalReactivar');
+}
+
+// ============================================================
+// RECONSTRUIR OPCIONES DE PRODUCTO (con stock disponible)
+// ============================================================
+function reconstruirOpcionesProducto(selectEl, idx) {
+    if (!selectEl) return;
+
+    var valorActual = selectEl.value;
+    selectEl.innerHTML = '<option value="">Seleccionar producto</option>';
+
+    productos.forEach(function (p) {
+        var stock = parseInt(p.stock) || 0;
+        var option = document.createElement('option');
+        option.value = p.id_producto;
+        option.dataset.stock = stock;
+
+        var texto = p.nombre || 'Producto';
+        if (stock <= 0) {
+            texto += ' — SIN STOCK';
+            option.disabled = true;
+        } else {
+            texto += ' [' + stock + ' disp.]';
+        }
+        option.textContent = texto;
+
+        selectEl.appendChild(option);
+    });
+
+    if (valorActual) selectEl.value = valorActual;
+    onProductoChange(idx);
+}
+
+// ============================================================
+// AGREGAR FILA
+// ============================================================
+function agregarFila() {
+    var container = document.getElementById('filasProductos');
+    var idx = filaCount++;
+    var div = document.createElement('div');
+    div.className = 'item-row';
+    div.id = 'fila-' + idx;
+
+    div.innerHTML =
+        '<div class="item-row-grid">' +
+
+            // PRODUCTO
+            '<div>' +
+                '<span class="item-row-label">Producto</span>' +
+                '<select class="campo-input select-producto" name="id_producto[]" data-idx="' + idx + '" required ' +
+                    'onchange="onProductoChange(' + idx + ')" style="padding:8px;">' +
+                    '<option value="">Seleccionar producto</option>' +
+                '</select>' +
+            '</div>' +
+
+            // UNIDAD DE VENTA
+            '<div>' +
+                '<span class="item-row-label">Unidad</span>' +
+                '<select class="campo-input" name="id_unidad[]" id="unidad-' + idx + '" required style="padding:8px;">' +
+                    generarOpcionesUnidad('Unidad') +
+                '</select>' +
+            '</div>' +
+
+            // CONTENIDO POR UNIDAD
+            '<div>' +
+                '<span class="item-row-label">Contenido</span>' +
+                '<input type="number" name="cantidad_por_unidad[]" id="cpu-' + idx + '" min="1" step="1" value="1" required ' +
+                    'oninput="calcularFila(' + idx + ')" class="campo-input" style="text-align:center;padding:8px;">' +
+            '</div>' +
+
+            // UNIDAD DE CONTENIDO
+            '<div>' +
+                '<span class="item-row-label">Unid. contenido</span>' +
+                '<select class="campo-input" name="id_unidad_contenido[]" id="unidadcontenido-' + idx + '" required style="padding:8px;">' +
+                    generarOpcionesUnidad('Contenido') +
+                '</select>' +
+            '</div>' +
+
+            // CANTIDAD
+            '<div>' +
+                '<span class="item-row-label">Cantidad</span>' +
+                '<input type="number" name="cantidad[]" id="cant-' + idx + '" min="1" step="1" value="1" required ' +
+                    'oninput="calcularFila(' + idx + ')" class="campo-input" style="text-align:center;padding:8px;">' +
+            '</div>' +
+
+            // PRECIO DE VENTA
+            '<div>' +
+                '<span class="item-row-label">Precio venta</span>' +
+                '<input type="number" name="precio_venta[]" id="precio-' + idx + '" min="0.01" step="0.01" required ' +
+                    'oninput="calcularFila(' + idx + ')" class="campo-input" style="padding:8px;" placeholder="0">' +
+            '</div>' +
+
+            // DESCUENTO %
+            '<div>' +
+                '<span class="item-row-label">Desc. %</span>' +
+                '<input type="number" name="descuento_porcentaje[]" id="desc-' + idx + '" min="0" max="100" step="0.01" value="0" ' +
+                    'oninput="calcularFila(' + idx + ')" class="campo-input" style="text-align:center;padding:8px;">' +
+            '</div>' +
+
+            // SUBTOTAL
+            '<div>' +
+                '<span class="item-row-label">Subtotal</span>' +
+                '<div style="position:relative;">' +
+                    '<span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:#9CA3AF;font-size:.8rem;">$</span>' +
+                    '<input type="text" id="subvisual-' + idx + '" value="0" readonly class="campo-input" ' +
+                        'style="padding:8px 8px 8px 22px;text-align:right;background:#fff;font-weight:700;color:#00875F;cursor:not-allowed;">' +
+                '</div>' +
+            '</div>' +
+
+            // QUITAR
+            '<button type="button" onclick="quitarFila(' + idx + ')" title="Quitar producto" ' +
+                'style="width:26px;height:26px;border-radius:6px;background:#fde8e8;border:none;color:#E53935;cursor:pointer;display:flex;align-items:center;justify-content:center;align-self:end;margin-bottom:2px;">' +
+                '<i class="fas fa-times" style="font-size:.65rem;"></i>' +
+            '</button>' +
+
+        '</div>';
+
+    container.appendChild(div);
+
+    var select = div.querySelector('.select-producto');
+    reconstruirOpcionesProducto(select, idx);
+}
+
+// ============================================================
+// QUITAR FILA
+// ============================================================
+function quitarFila(idx) {
+    var el = document.getElementById('fila-' + idx);
+    if (el) {
+        el.remove();
+        recalcularTotal();
+    }
+}
+
+function onProductoChange(idx) {
+    calcularFila(idx);
+}
+
+// ============================================================
+// CALCULAR SUBTOTAL DE LA FILA (cantidad × precio, menos el % de descuento)
+// ============================================================
+function calcularFila(idx) {
+    var cantidadInput = document.getElementById('cant-' + idx);
+    var precioInput = document.getElementById('precio-' + idx);
+    var descuentoInput = document.getElementById('desc-' + idx);
+    var subtotalVisual = document.getElementById('subvisual-' + idx);
+
+    var cantidadTexto = cantidadInput ? cantidadInput.value.trim() : '';
+    var cantidad = /^\d+$/.test(cantidadTexto) ? Number(cantidadTexto) : 0;
+
+    if (cantidadInput && cantidadInput.value !== '' && !Number.isInteger(parseFloat(cantidadInput.value))) {
+        cantidadInput.value = cantidad;
+    }
+
+    var precioVenta = precioInput ? (parseFloat(precioInput.value) || 0) : 0;
+    var descuentoPct = descuentoInput ? (parseFloat(descuentoInput.value) || 0) : 0;
+    descuentoPct = Math.min(Math.max(descuentoPct, 0), 100);
+
+    var bruto = cantidad * precioVenta;
+    var subtotal = bruto - (bruto * descuentoPct / 100);
+
+    if (subtotalVisual) {
+        subtotalVisual.value = subtotal.toLocaleString('es-CO', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2
+        });
+    }
+
+    recalcularTotal();
+}
+
+// ============================================================
+// RECALCULAR TOTAL
+// ============================================================
+function recalcularTotal() {
+    var total = 0;
+
+    document.querySelectorAll('#filasProductos .item-row').forEach(function (fila) {
+        var idx = fila.id.replace('fila-', '');
+        var cantidadInput = document.getElementById('cant-' + idx);
+        var precioInput = document.getElementById('precio-' + idx);
+        var descuentoInput = document.getElementById('desc-' + idx);
+
+        var cantidadTexto = cantidadInput ? cantidadInput.value.trim() : '';
+        var cantidad = /^\d+$/.test(cantidadTexto) ? Number(cantidadTexto) : 0;
+        var precioVenta = precioInput ? (parseFloat(precioInput.value) || 0) : 0;
+        var descuentoPct = descuentoInput ? (parseFloat(descuentoInput.value) || 0) : 0;
+        descuentoPct = Math.min(Math.max(descuentoPct, 0), 100);
+
+        var bruto = cantidad * precioVenta;
+        total += bruto - (bruto * descuentoPct / 100);
+    });
+
+    var totalElemento = document.getElementById('totalVenta');
+    if (totalElemento) {
+        totalElemento.textContent =
+            '$' + total.toLocaleString('es-CO', {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 2
+            });
+    }
+}
+
+// ============================================================
+// VER DETALLE
+// ============================================================
+function verDetalle(id) {
+    document.getElementById('detalleEncabezado').textContent = 'Venta #' + id;
+    document.getElementById('detalleCuerpo').innerHTML =
+        '<div style="text-align:center;padding:32px 0;">' +
+            '<i class="fas fa-spinner fa-spin" style="color:#00875F;font-size:1.5rem;"></i>' +
+        '</div>';
+
+    abrirModal('modalDetalle');
+
+    fetch('../../controllers/VentaController.php?accion=detalle&id=' + encodeURIComponent(id))
+        .then(function (response) {
+            if (!response.ok) throw new Error('Error HTTP');
+            return response.json();
+        })
+        .then(function (data) {
+            if (!Array.isArray(data) || data.length === 0) {
+                document.getElementById('detalleCuerpo').innerHTML =
+                    '<p style="text-align:center;color:#9CA3AF;padding:24px 0;">' +
+                    'Sin productos registrados en esta venta.</p>';
+                return;
+            }
+
+            var html =
+                '<table style="width:100%;border-collapse:collapse;">' +
+                    '<thead>' +
+                        '<tr style="background:#F8F8F8;">' +
+                            '<th style="padding:8px 10px;text-align:left;font-size:.75rem;color:#5F6673;text-transform:uppercase;">Producto</th>' +
+                            '<th style="padding:8px 10px;text-align:center;font-size:.75rem;color:#5F6673;text-transform:uppercase;">Cant.</th>' +
+                            '<th style="padding:8px 10px;text-align:right;font-size:.75rem;color:#5F6673;text-transform:uppercase;">P. Venta</th>' +
+                            '<th style="padding:8px 10px;text-align:right;font-size:.75rem;color:#5F6673;text-transform:uppercase;">Desc.</th>' +
+                            '<th style="padding:8px 10px;text-align:right;font-size:.75rem;color:#5F6673;text-transform:uppercase;">Subtotal</th>' +
+                            '<th style="padding:8px 10px;text-align:right;font-size:.75rem;color:#5F6673;text-transform:uppercase;">Ganancia</th>' +
+                        '</tr>' +
+                    '</thead>' +
+                    '<tbody>';
+
+            var totalV = 0, totalG = 0;
+
+            data.forEach(function (d) {
+                totalV += parseFloat(d.subtotal) || 0;
+                var gan = parseFloat(d.ganancia_linea) || 0;
+                totalG += gan;
+                var cg = gan >= 0 ? '#00875F' : '#E53935';
+                var descPct = parseFloat(d.descuento_porcentaje) || 0;
+
+                html +=
+                    '<tr style="border-bottom:1px solid #E5E7EB;">' +
+                        '<td style="padding:9px 10px;font-weight:700;color:#171717;font-size:.85rem;">' +
+                            escapeHtml(d.producto || '') +
+                        '</td>' +
+                        '<td style="padding:9px 10px;text-align:center;color:#171717;font-size:.85rem;">' +
+                            d.cantidad +
+                        '</td>' +
+                        '<td style="padding:9px 10px;text-align:right;color:#5F6673;font-size:.82rem;">$' +
+                            Number(d.precio_venta).toLocaleString('es-CO') +
+                        '</td>' +
+                        '<td style="padding:9px 10px;text-align:right;color:#5F6673;font-size:.82rem;">' +
+                            (descPct > 0 ? descPct + '%' : '—') +
+                        '</td>' +
+                        '<td style="padding:9px 10px;text-align:right;font-weight:700;color:#00875F;font-size:.9rem;">$' +
+                            Number(d.subtotal).toLocaleString('es-CO') +
+                        '</td>' +
+                        '<td style="padding:9px 10px;text-align:right;font-weight:700;color:' + cg + ';font-size:.85rem;">$' +
+                            Number(Math.abs(gan)).toLocaleString('es-CO') +
+                        '</td>' +
+                    '</tr>';
+            });
+
+            var margen = totalV > 0 ? (totalG / totalV * 100).toFixed(1) : 0;
+
+            html +=
+                '</tbody></table>' +
+                '<div style="margin-top:14px;padding:14px 10px;background:#DDF5EC;border-radius:10px;border:1px solid #61D0A7;">' +
+                    '<div style="display:flex;justify-content:space-between;margin-bottom:6px;">' +
+                        '<span style="font-size:.78rem;font-weight:700;color:#01614B;">Total venta</span>' +
+                        '<span style="font-weight:800;color:#00875F;">$' + totalV.toLocaleString('es-CO') + '</span>' +
+                    '</div>' +
+                    '<div style="display:flex;justify-content:space-between;margin-bottom:6px;">' +
+                        '<span style="font-size:.78rem;font-weight:700;color:#01614B;">Ganancia total</span>' +
+                        '<span style="font-weight:800;color:#00875F;">$' + Math.abs(totalG).toLocaleString('es-CO') + '</span>' +
+                    '</div>' +
+                    '<div style="display:flex;justify-content:space-between;">' +
+                        '<span style="font-size:.78rem;font-weight:700;color:#01614B;">Margen</span>' +
+                        '<span style="font-weight:800;color:#00875F;">' + margen + '%</span>' +
+                    '</div>' +
+                '</div>';
+
+            document.getElementById('detalleCuerpo').innerHTML = html;
+        })
+        .catch(function (error) {
+            console.error(error);
+            document.getElementById('detalleCuerpo').innerHTML =
+                '<p style="text-align:center;color:#E53935;padding:24px 0;">' +
+                'Error al cargar el detalle de la venta.</p>';
+        });
+}
+
+// ============================================================
+// PROTEGER HTML
+// ============================================================
+function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// ============================================================
+// CERRAR MODALES AL HACER CLIC AFUERA
+// ============================================================
+document.addEventListener('click', function (event) {
+    if (event.target.id === 'modalCrear') cerrarModalCrear();
+    if (event.target.id === 'modalDetalle') cerrarModal('modalDetalle');
+    if (event.target.id === 'modalEliminar') cerrarModal('modalEliminar');
+    if (event.target.id === 'modalReactivar') cerrarModal('modalReactivar');
+});
+
+// ============================================================
+// VALIDACIÓN DEL FORMULARIO
+// ============================================================
+document.getElementById('formVenta')?.addEventListener('submit', function (event) {
+    var cliente = document.getElementById('selectCliente');
+    if (!cliente || !cliente.value) {
+        event.preventDefault();
+        Swal.fire({
+            icon: 'warning',
+            title: 'Cliente requerido',
+            text: 'Debes seleccionar un cliente activo.',
+            confirmButtonColor: '#00875F'
+        });
+        return;
+    }
+
+    var filas = document.querySelectorAll('#filasProductos .item-row');
+    if (filas.length === 0) {
+        event.preventDefault();
+        Swal.fire({
+            icon: 'warning',
+            title: 'Sin productos',
+            text: 'Debes agregar al menos un producto.',
+            confirmButtonColor: '#00875F'
+        });
+        return;
+    }
+
+    var valido = true;
+    var mensaje = '';
+
+    filas.forEach(function (fila) {
+        var idx = fila.id.replace('fila-', '');
+        var select = fila.querySelector('.select-producto');
+        var cantidadInput = document.getElementById('cant-' + idx);
+        var precioInput = document.getElementById('precio-' + idx);
+        var descuentoInput = document.getElementById('desc-' + idx);
+        var unidadSelect = document.getElementById('unidad-' + idx);
+        var cpuInput = document.getElementById('cpu-' + idx);
+        var unidadContenidoSelect = document.getElementById('unidadcontenido-' + idx);
+
+        if (!select || !select.value) {
+            valido = false;
+            mensaje = 'Selecciona un producto en todas las filas.';
+            return;
+        }
+
+        var cantidadTexto = cantidadInput ? cantidadInput.value.trim() : '';
+        if (!/^\d+$/.test(cantidadTexto) || Number(cantidadTexto) <= 0) {
+            valido = false;
+            mensaje = 'Todas las cantidades deben ser números enteros mayores que cero.';
+            return;
+        }
+
+        var precioTexto = precioInput ? precioInput.value.trim() : '';
+        if (precioTexto === '' || isNaN(precioTexto) || Number(precioTexto) <= 0) {
+            valido = false;
+            mensaje = 'Debes escribir el precio de venta para cada producto.';
+            return;
+        }
+
+        var descuentoTexto = descuentoInput ? descuentoInput.value.trim() : '0';
+        if (descuentoTexto !== '' && (isNaN(descuentoTexto) || Number(descuentoTexto) < 0 || Number(descuentoTexto) > 100)) {
+            valido = false;
+            mensaje = 'El descuento debe ser un número entre 0 y 100.';
+            return;
+        }
+
+        var unidadValor = unidadSelect ? unidadSelect.value : '';
+        if (unidadValor === '') {
+            valido = false;
+            mensaje = 'Debes seleccionar la unidad de venta para cada producto.';
+            return;
+        }
+
+        var cpuTexto = cpuInput ? cpuInput.value.trim() : '';
+        if (!/^\d+$/.test(cpuTexto) || Number(cpuTexto) <= 0) {
+            valido = false;
+            mensaje = 'El contenido por unidad debe ser un número entero mayor que cero.';
+            return;
+        }
+
+        var unidadContenidoValor = unidadContenidoSelect ? unidadContenidoSelect.value : '';
+        if (unidadContenidoValor === '') {
+            valido = false;
+            mensaje = 'Debes seleccionar la unidad de contenido (ej. kilogramo, libra) para cada producto.';
+        }
+    });
+
+    if (!valido) {
+        event.preventDefault();
+        Swal.fire({
+            icon: 'warning',
+            title: 'Revisa la venta',
+            text: mensaje,
+            confirmButtonColor: '#00875F'
+        });
+    }
+});
 </script>
 
-<?php require_once __DIR__ . '/../layouts/footer.php'; ?>
+<?php
+require_once __DIR__ . '/../layouts/footer.php';
+?>

@@ -4,8 +4,8 @@
 // Acceso: Solo Vendedor
 // Función: Barra lateral de navegación con menú reducido para
 //          el rol Vendedor. Solo muestra los módulos a los que
-//          tiene acceso: Inicio, Ventas, Clientes, Productos
-//          e Inventario (solo lectura).
+//          tiene acceso: Inicio, Ventas, Clientes, Productos,
+//          Inventario (solo lectura) y Reportes.
 //          También renderiza el header superior con nombre,
 //          rol y menú desplegable de usuario.
 //
@@ -13,6 +13,12 @@
 // y componentes: sidebar #01614B, ítem activo #00875F, header
 // blanco con dropdown de usuario) para que ambos paneles se
 // vean como parte del mismo sistema.
+//
+// CAMBIO: Clientes, Productos e Inventario ahora son copias
+// propias del vendedor (views/vendedor/clientes.php,
+// productos.php, inventario.php) en vez de las vistas
+// compartidas ../clientes/, ../productos/, ../inventario/.
+// CAMBIO: se agrega el módulo Reportes (views/vendedor/reporte.php).
 // ============================================================
 
 // Datos del usuario autenticado desde la sesión
@@ -23,11 +29,12 @@ $rolDisplay = htmlspecialchars(ucfirst($rol));
 // Detección de página activa
 $self = $_SERVER['PHP_SELF'];
 
-$enInicio      = strpos($self, 'vendedor.php')       !== false;
-$enVenta       = strpos($self, '/vendedor/ventas')   !== false;
-$enClientes    = strpos($self, 'clientes')            !== false;
-$enProductos   = strpos($self, 'productos')            !== false;
-$enInventario  = strpos($self, 'inventario')            !== false;
+$enInicio      = strpos($self, 'vendedor.php')             !== false;
+$enVenta       = strpos($self, '/vendedor/ventas.php')     !== false;
+$enClientes    = strpos($self, '/vendedor/clientes.php')   !== false;
+$enProductos   = strpos($self, '/vendedor/productos.php')  !== false;
+$enInventario  = strpos($self, '/vendedor/inventario.php') !== false;
+$enReporte     = strpos($self, '/vendedor/reporte.php')    !== false;
 ?>
 
 <style>
@@ -130,20 +137,27 @@ $enInventario  = strpos($self, 'inventario')            !== false;
             <i class="fas fa-cash-register"></i><span>Ventas</span>
         </a>
 
-        <a href="../clientes/index.php"
+        <a href="../vendedor/clientes.php"
            class="nav-item <?= $enClientes ? 'activo' : '' ?>">
             <i class="fas fa-user-tie"></i><span>Clientes</span>
         </a>
 
-        <a href="../productos/index.php"
+        <a href="../vendedor/productos.php"
            class="nav-item <?= $enProductos ? 'activo' : '' ?>">
             <i class="fas fa-box-open"></i><span>Productos</span>
         </a>
 
-        <a href="../inventario/index.php"
+        <a href="../vendedor/inventario.php"
            class="nav-item <?= $enInventario ? 'activo' : '' ?>">
             <i class="fas fa-warehouse"></i><span>Inventario</span>
         </a>
+
+        <a href="../vendedor/reporte.php"
+           class="nav-item <?= $enReporte ? 'activo' : '' ?>">
+            <i class="fas fa-chart-line"></i><span>Reportes</span>
+        </a>
+
+        
 
     </nav>
 

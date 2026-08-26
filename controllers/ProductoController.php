@@ -51,7 +51,20 @@ function regresarConAlerta($icon, $title, $text)
         'text'  => $text
     ];
 
-    header("Location: ../views/productos/index.php");
+    // ----------------------------------------------------------
+    // REGRESAR A LA MISMA VISTA DESDE DONDE SE HIZO LA ACCIÓN
+    // (admin vuelve a su panel, vendedor vuelve al suyo)
+    // ----------------------------------------------------------
+
+    $destino = $_SERVER['HTTP_REFERER'] ?? null;
+
+    if ($destino) {
+        header("Location: " . $destino);
+    } else {
+        // Fallback por si el navegador no envía referer
+        header("Location: ../views/productos/index.php");
+    }
+
     exit;
 }
 

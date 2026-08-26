@@ -9,6 +9,11 @@
  * Todas las cantidades se normalizan a una unidad de "contenido"
  * (ej. kilogramos) para poder comparar costo de compra vs precio
  * de venta aunque se compre en Bulto y se venda en Libra.
+ *
+ * obtenerTodas() y obtenerResumen() aceptan un parámetro opcional
+ * $idUsuario:
+ *   - null (o no se pasa) -> Administrador: ve TODAS las ventas
+ *   - un id_usuario       -> filtra solo las ventas de ESE vendedor
  */
 class Venta
 {
@@ -22,7 +27,7 @@ class Venta
     // =========================================================
     // LISTA DE VENTAS (ganancia calculada al vuelo, no se guarda)
     // =========================================================
-    public function obtenerTodas()
+    public function obtenerTodas($idUsuario = null)
     {
         try {
             $sql = "
@@ -48,11 +53,15 @@ class Venta
                         SUM(subtotal - (costo_unitario * cantidad)) AS ganancia
                     FROM detalle_venta
                     GROUP BY id_venta
-                ) g ON g.id_venta = v.id_venta
+                ) g ON g.id_venta = v.id_venta"
+                 . ($idUsuario ? " WHERE v.id_usuario = :id" : "") . "
                 ORDER BY v.fecha DESC, v.id_venta DESC
             ";
 
             $stmt = $this->conn->prepare($sql);
+            if ($idUsuario) {
+                $stmt->bindValue(':id', $idUsuario, PDO::PARAM_INT);
+            }
             $stmt->execute();
 
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -68,7 +77,7 @@ class Venta
     // Histórico completo: no se filtra por estado, así el
     // acumulado no cambia cuando una venta se anula o reactiva.
     // =========================================================
-    public function obtenerResumen()
+    public function obtenerResumen($idUsuario = null)
     {
         try {
             $sql = "
@@ -77,10 +86,13 @@ class Venta
                     COALESCE(SUM(total), 0) AS ingresos_total,
                     SUM(CASE WHEN DATE(fecha) = CURDATE() THEN 1 ELSE 0 END) AS ventas_hoy,
                     SUM(CASE WHEN DATE(fecha) = CURDATE() THEN total ELSE 0 END) AS ingresos_hoy
-                FROM venta
-            ";
+                FROM venta"
+                 . ($idUsuario ? " WHERE id_usuario = :id" : "");
 
             $stmt = $this->conn->prepare($sql);
+            if ($idUsuario) {
+                $stmt->bindValue(':id', $idUsuario, PDO::PARAM_INT);
+            }
             $stmt->execute();
 
             return $stmt->fetch(PDO::FETCH_ASSOC);
@@ -93,6 +105,8 @@ class Venta
 
     // =========================================================
     // CLIENTES ACTIVOS (para el select del modal)
+    // Compartidos: cualquier vendedor puede venderle a cualquier
+    // cliente activo del sistema.
     // =========================================================
     public function obtenerClientes()
     {
@@ -148,17 +162,6 @@ class Venta
 
     // =========================================================
     // ALIAS: obtenerProductos()
-    // Agregado porque views/dashboard/vendedor.php llama a este
-    // nombre. No se tocó obtenerProductosDisponibles() para no
-    // romper nada que ya lo esté usando en otras vistas.
-    //
-    // OJO: esto NO trae "precio", porque en tu esquema real el
-    // precio no vive en producto ni en inventario, se digita por
-    // línea al momento de vender. El modal de "Nueva Venta" del
-    // dashboard del vendedor asume un campo p.precio que no existe
-    // en tu BD, así que el JS que lee data-precio del <option>
-    // seguirá mostrando $0 hasta que ajustemos ese modal para que
-    // el precio se digite (como ya hace tu método registrar()).
     // =========================================================
     public function obtenerProductos()
     {
@@ -210,14 +213,12 @@ class Venta
             $fila = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$fila) {
-                // Nunca se ha comprado este producto: no hay costo de referencia.
                 return 0;
             }
 
             $precioCompra   = (float)$fila['precio_compra'];
             $cantPorUnidad  = (int)($fila['cantidad_por_unidad'] ?? 0);
 
-            // Si la compra no tiene conversión, el costo por contenido es el precio directo.
             return $cantPorUnidad > 0
                 ? round($precioCompra / $cantPorUnidad, 2)
                 : $precioCompra;
@@ -271,6 +272,8 @@ class Venta
 
     // =========================================================
     // CABECERA COMPLETA DE UNA VENTA (para el comprobante)
+    // Incluye id_usuario para poder validar dueño (vendedor)
+    // antes de mostrar la factura.
     // =========================================================
     public function obtenerVentaCompleta($id_venta)
     {
@@ -278,6 +281,7 @@ class Venta
             $sql = "
                 SELECT
                     v.id_venta,
+                    v.id_usuario,
                     v.fecha,
                     v.total,
                     v.metodo_pago,
@@ -323,9 +327,6 @@ class Venta
         try {
             $this->conn->beginTransaction();
 
-            // ----------------------------------------------------
-            // VALIDAR CLIENTE ACTIVO
-            // ----------------------------------------------------
             $stmtCli = $this->conn->prepare(
                 "SELECT id_cliente FROM cliente WHERE id_cliente = :id AND estado = 1 LIMIT 1"
             );
@@ -360,10 +361,6 @@ class Venta
                     return "El descuento debe estar entre 0% y 100%.";
                 }
 
-                // ----------------------------------------------------
-                // VALIDAR PRODUCTO ACTIVO Y BLOQUEAR SU FILA DE INVENTARIO
-                // (FOR UPDATE evita condiciones de carrera con ventas simultáneas)
-                // ----------------------------------------------------
                 $stmtProd = $this->conn->prepare(
                     "SELECT p.nombre, COALESCE(i.stock_actual, 0) AS stock
                      FROM producto p
@@ -380,10 +377,6 @@ class Venta
                     return "Uno de los productos ya no existe o está inactivo.";
                 }
 
-                // ----------------------------------------------------
-                // CANTIDAD REAL A DESCONTAR DEL INVENTARIO
-                // (cantidad vendida × contenido por unidad de venta)
-                // ----------------------------------------------------
                 $cantidadContenido = $cantidad * $cant_x_und;
 
                 if ($cantidadContenido > (int)$prod['stock']) {
@@ -391,17 +384,9 @@ class Venta
                     return "Stock insuficiente para \"{$prod['nombre']}\". Disponible: {$prod['stock']}.";
                 }
 
-                // ----------------------------------------------------
-                // CÁLCULOS DE DINERO (recalculados en servidor, nunca
-                // se confía en el subtotal que mande el navegador)
-                // ----------------------------------------------------
                 $descuento_valor = round($precio_venta * $cantidad * $desc_pct / 100, 2);
                 $subtotal        = round(($precio_venta * $cantidad) - $descuento_valor, 2);
 
-                // ----------------------------------------------------
-                // COSTO DE REFERENCIA (última compra), llevado a la
-                // misma unidad de venta para poder comparar contra precio_venta
-                // ----------------------------------------------------
                 $costoPorContenido = $this->obtenerCostoPorContenido($id_producto);
                 $costo_unitario    = round($costoPorContenido * $cant_x_und, 2);
 
@@ -427,9 +412,6 @@ class Venta
                 return "Debes agregar al menos un producto.";
             }
 
-            // ----------------------------------------------------
-            // INSERT VENTA
-            // ----------------------------------------------------
             $stmtV = $this->conn->prepare(
                 "INSERT INTO venta (id_cliente, id_usuario, fecha, total, metodo_pago, estado)
                  VALUES (:id_cliente, :id_usuario, NOW(), :total, :metodo_pago, 1)"
@@ -442,9 +424,6 @@ class Venta
             ]);
             $id_venta = (int)$this->conn->lastInsertId();
 
-            // ----------------------------------------------------
-            // INSERT DETALLE_VENTA + DESCONTAR INVENTARIO
-            // ----------------------------------------------------
             $stmtD = $this->conn->prepare(
                 "INSERT INTO detalle_venta
                      (id_venta, id_producto, cantidad, precio_venta,
@@ -485,9 +464,6 @@ class Venta
                 ]);
             }
 
-            // ----------------------------------------------------
-            // INSERT FACTURA
-            // ----------------------------------------------------
             $descuentoTotal   = array_sum(array_column($itemsCalculados, 'descuento_valor'));
             $subtotalSinDesc  = $total + $descuentoTotal;
             $numeroFactura    = $this->generarNumeroFactura();
@@ -551,9 +527,6 @@ class Venta
                 return "La venta no existe o ya está anulada.";
             }
 
-            // ----------------------------------------------------
-            // DEVOLVER STOCK DE CADA LÍNEA
-            // ----------------------------------------------------
             $stmtLineas = $this->conn->prepare(
                 "SELECT id_producto, cantidad, cantidad_por_unidad
                  FROM detalle_venta
@@ -580,9 +553,6 @@ class Venta
                 ]);
             }
 
-            // ----------------------------------------------------
-            // MARCAR VENTA Y FACTURA COMO ANULADAS
-            // ----------------------------------------------------
             $this->conn->prepare("UPDATE venta   SET estado = 0 WHERE id_venta = ?")->execute([$id_venta]);
             $this->conn->prepare("UPDATE factura SET estado = 0 WHERE id_venta = ?")->execute([$id_venta]);
 
@@ -617,9 +587,6 @@ class Venta
                 return "La venta no existe o ya está activa.";
             }
 
-            // ----------------------------------------------------
-            // TRAER LAS LÍNEAS Y BLOQUEAR EL INVENTARIO INVOLUCRADO
-            // ----------------------------------------------------
             $stmtLineas = $this->conn->prepare(
                 "SELECT dv.id_producto, dv.cantidad, dv.cantidad_por_unidad,
                         p.nombre, COALESCE(i.stock_actual, 0) AS stock
@@ -633,9 +600,6 @@ class Venta
             $stmtLineas->execute();
             $lineas = $stmtLineas->fetchAll(PDO::FETCH_ASSOC);
 
-            // ----------------------------------------------------
-            // VALIDAR QUE HAYA STOCK SUFICIENTE ANTES DE TOCAR NADA
-            // ----------------------------------------------------
             foreach ($lineas as $l) {
                 $cantPorUnidad     = (int)($l['cantidad_por_unidad'] ?: 1);
                 $cantidadContenido = (int)$l['cantidad'] * $cantPorUnidad;
@@ -646,9 +610,6 @@ class Venta
                 }
             }
 
-            // ----------------------------------------------------
-            // DESCONTAR NUEVAMENTE EL INVENTARIO
-            // ----------------------------------------------------
             $stmtDescontar = $this->conn->prepare(
                 "UPDATE inventario
                  SET stock_actual = stock_actual - :cantidad_contenido,
@@ -666,9 +627,6 @@ class Venta
                 ]);
             }
 
-            // ----------------------------------------------------
-            // MARCAR VENTA Y FACTURA COMO ACTIVAS DE NUEVO
-            // ----------------------------------------------------
             $this->conn->prepare("UPDATE venta   SET estado = 1 WHERE id_venta = ?")->execute([$id_venta]);
             $this->conn->prepare("UPDATE factura SET estado = 1 WHERE id_venta = ?")->execute([$id_venta]);
 

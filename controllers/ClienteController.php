@@ -23,6 +23,41 @@ require_once __DIR__ . '/../config/databse.php';
 require_once __DIR__ . '/../models/cliente.php';
 
 
+// ============================================================
+// RUTAS DE REGRESO SEGÚN EL ROL
+// ============================================================
+
+const VISTA_CLIENTES_ADMIN    = '../views/clientes/index.php';
+const VISTA_CLIENTES_VENDEDOR = '../views/vendedor/clientes.php';
+
+
+// ============================================================
+// FUNCIÓN PARA MOSTRAR ALERTA Y REGRESAR
+// (admin vuelve a su panel, vendedor vuelve al suyo, según
+// el rol guardado en la sesión — no depende del Referer del
+// navegador, que puede venir vacío por políticas de privacidad)
+// ============================================================
+
+function regresarConAlerta($icon, $title, $text)
+{
+    $_SESSION['alert'] = [
+        'icon'  => $icon,
+        'title' => $title,
+        'text'  => $text
+    ];
+
+    $rol = strtolower(trim($_SESSION['usuario']['rol'] ?? ''));
+
+    $destino = $rol === 'vendedor'
+        ? VISTA_CLIENTES_VENDEDOR
+        : VISTA_CLIENTES_ADMIN;
+
+    header("Location: " . $destino);
+
+    exit;
+}
+
+
 try {
 
     $database = new Database();
@@ -33,15 +68,11 @@ try {
 
 } catch (Exception $e) {
 
-    $_SESSION['alert'] = [
-        'icon' => 'error',
-        'title' => 'Error',
-        'text' => 'No se pudo conectar con la base de datos.'
-    ];
-
-    header("Location: ../views/clientes/index.php");
-
-    exit;
+    regresarConAlerta(
+        'error',
+        'Error',
+        'No se pudo conectar con la base de datos.'
+    );
 }
 
 
@@ -67,15 +98,11 @@ if ($accion === 'registrar') {
 
     if ($nombre === '') {
 
-        $_SESSION['alert'] = [
-            'icon' => 'warning',
-            'title' => 'Campo obligatorio',
-            'text' => 'El nombre del cliente es obligatorio.'
-        ];
-
-        header("Location: ../views/clientes/index.php");
-
-        exit;
+        regresarConAlerta(
+            'warning',
+            'Campo obligatorio',
+            'El nombre del cliente es obligatorio.'
+        );
     }
 
 
@@ -84,15 +111,11 @@ if ($accion === 'registrar') {
         !filter_var($correo, FILTER_VALIDATE_EMAIL)
     ) {
 
-        $_SESSION['alert'] = [
-            'icon' => 'warning',
-            'title' => 'Correo inválido',
-            'text' => 'El formato del correo electrónico no es válido.'
-        ];
-
-        header("Location: ../views/clientes/index.php");
-
-        exit;
+        regresarConAlerta(
+            'warning',
+            'Correo inválido',
+            'El formato del correo electrónico no es válido.'
+        );
     }
 
 
@@ -101,15 +124,11 @@ if ($accion === 'registrar') {
         $clienteModel->existeCorreo($correo)
     ) {
 
-        $_SESSION['alert'] = [
-            'icon' => 'error',
-            'title' => 'Correo duplicado',
-            'text' => 'El correo electrónico ya está registrado.'
-        ];
-
-        header("Location: ../views/clientes/index.php");
-
-        exit;
+        regresarConAlerta(
+            'error',
+            'Correo duplicado',
+            'El correo electrónico ya está registrado.'
+        );
     }
 
 
@@ -120,24 +139,20 @@ if ($accion === 'registrar') {
     ]);
 
 
-    $_SESSION['alert'] = $resultado === true
+    if ($resultado === true) {
 
-        ? [
-            'icon' => 'success',
-            'title' => '¡Cliente registrado!',
-            'text' => 'El cliente fue registrado correctamente.'
-        ]
+        regresarConAlerta(
+            'success',
+            '¡Cliente registrado!',
+            'El cliente fue registrado correctamente.'
+        );
+    }
 
-        : [
-            'icon' => 'error',
-            'title' => 'Error',
-            'text' => $resultado
-        ];
-
-
-    header("Location: ../views/clientes/index.php");
-
-    exit;
+    regresarConAlerta(
+        'error',
+        'Error',
+        $resultado
+    );
 }
 
 
@@ -158,15 +173,11 @@ if ($accion === 'editar') {
 
     if ($id_cliente <= 0 || $nombre === '') {
 
-        $_SESSION['alert'] = [
-            'icon' => 'warning',
-            'title' => 'Datos incompletos',
-            'text' => 'El nombre del cliente es obligatorio.'
-        ];
-
-        header("Location: ../views/clientes/index.php");
-
-        exit;
+        regresarConAlerta(
+            'warning',
+            'Datos incompletos',
+            'El nombre del cliente es obligatorio.'
+        );
     }
 
 
@@ -175,15 +186,11 @@ if ($accion === 'editar') {
         !filter_var($correo, FILTER_VALIDATE_EMAIL)
     ) {
 
-        $_SESSION['alert'] = [
-            'icon' => 'warning',
-            'title' => 'Correo inválido',
-            'text' => 'El correo electrónico no es válido.'
-        ];
-
-        header("Location: ../views/clientes/index.php");
-
-        exit;
+        regresarConAlerta(
+            'warning',
+            'Correo inválido',
+            'El correo electrónico no es válido.'
+        );
     }
 
 
@@ -195,24 +202,20 @@ if ($accion === 'editar') {
     );
 
 
-    $_SESSION['alert'] = $resultado === true
+    if ($resultado === true) {
 
-        ? [
-            'icon' => 'success',
-            'title' => '¡Actualizado!',
-            'text' => 'Cliente actualizado correctamente.'
-        ]
+        regresarConAlerta(
+            'success',
+            '¡Actualizado!',
+            'Cliente actualizado correctamente.'
+        );
+    }
 
-        : [
-            'icon' => 'error',
-            'title' => 'Error',
-            'text' => $resultado
-        ];
-
-
-    header("Location: ../views/clientes/index.php");
-
-    exit;
+    regresarConAlerta(
+        'error',
+        'Error',
+        $resultado
+    );
 }
 
 
@@ -227,15 +230,11 @@ if ($accion === 'toggleEstado') {
 
     if ($id <= 0) {
 
-        $_SESSION['alert'] = [
-            'icon' => 'error',
-            'title' => 'Error',
-            'text' => 'Cliente no válido.'
-        ];
-
-        header("Location: ../views/clientes/index.php");
-
-        exit;
+        regresarConAlerta(
+            'error',
+            'Error',
+            'Cliente no válido.'
+        );
     }
 
 
@@ -244,15 +243,11 @@ if ($accion === 'toggleEstado') {
 
     if (!$cliente) {
 
-        $_SESSION['alert'] = [
-            'icon' => 'error',
-            'title' => 'Error',
-            'text' => 'Cliente no encontrado.'
-        ];
-
-        header("Location: ../views/clientes/index.php");
-
-        exit;
+        regresarConAlerta(
+            'error',
+            'Error',
+            'Cliente no encontrado.'
+        );
     }
 
 
@@ -273,29 +268,25 @@ if ($accion === 'toggleEstado') {
     );
 
 
-    $_SESSION['alert'] = $resultado === true
+    if ($resultado === true) {
 
-        ? [
-            'icon' => 'success',
-            'title' => 'Estado actualizado',
-            'text' => 'El cliente fue ' .
+        regresarConAlerta(
+            'success',
+            'Estado actualizado',
+            'El cliente fue ' .
                 (
                     $nuevoEstado === 'activo'
                         ? 'activado.'
                         : 'desactivado.'
                 )
-        ]
+        );
+    }
 
-        : [
-            'icon' => 'error',
-            'title' => 'Error',
-            'text' => $resultado
-        ];
-
-
-    header("Location: ../views/clientes/index.php");
-
-    exit;
+    regresarConAlerta(
+        'error',
+        'Error',
+        $resultado
+    );
 }
 
 
@@ -310,39 +301,31 @@ if ($accion === 'eliminar') {
 
     if ($id <= 0) {
 
-        $_SESSION['alert'] = [
-            'icon' => 'error',
-            'title' => 'Error',
-            'text' => 'Cliente no válido.'
-        ];
-
-        header("Location: ../views/clientes/index.php");
-
-        exit;
+        regresarConAlerta(
+            'error',
+            'Error',
+            'Cliente no válido.'
+        );
     }
 
 
     $resultado = $clienteModel->eliminar($id);
 
 
-    $_SESSION['alert'] = $resultado === true
+    if ($resultado === true) {
 
-        ? [
-            'icon' => 'success',
-            'title' => 'Cliente eliminado',
-            'text' => 'El cliente fue eliminado correctamente.'
-        ]
+        regresarConAlerta(
+            'success',
+            'Cliente eliminado',
+            'El cliente fue eliminado correctamente.'
+        );
+    }
 
-        : [
-            'icon' => 'error',
-            'title' => 'No se puede eliminar',
-            'text' => $resultado
-        ];
-
-
-    header("Location: ../views/clientes/index.php");
-
-    exit;
+    regresarConAlerta(
+        'error',
+        'No se puede eliminar',
+        $resultado
+    );
 }
 
 
@@ -350,8 +333,10 @@ if ($accion === 'eliminar') {
 // ACCIÓN NO VÁLIDA
 // ============================================================
 
-header("Location: ../views/clientes/index.php");
-
-exit;
+regresarConAlerta(
+    'error',
+    'Acción no válida',
+    'La acción solicitada no existe.'
+);
 
 ?>

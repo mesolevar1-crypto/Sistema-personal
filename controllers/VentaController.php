@@ -15,10 +15,30 @@ $ventaModel = new Venta($db);
 
 $accion = $_GET['accion'] ?? '';
 
+// ============================================================
+// RUTAS DE REGRESO SEGÚN EL ROL
+// ============================================================
+const VISTA_VENTAS_ADMIN    = '../views/venta/index.php';
+const VISTA_VENTAS_VENDEDOR = '../views/vendedor/ventas.php';
+
+// ============================================================
+// FUNCIÓN PARA MOSTRAR ALERTA Y REGRESAR
+// (admin vuelve a su panel, vendedor vuelve al suyo, según
+// el rol guardado en la sesión — no depende del Referer del
+// navegador, que puede venir vacío por políticas de privacidad)
+// ============================================================
 function regresarConAlerta($icon, $title, $text)
 {
     $_SESSION['alert'] = ['icon' => $icon, 'title' => $title, 'text' => $text];
-    header("Location: ../views/venta/index.php");
+
+    $rol = strtolower(trim($_SESSION['usuario']['rol'] ?? ''));
+
+    $destino = $rol === 'vendedor'
+        ? VISTA_VENTAS_VENDEDOR
+        : VISTA_VENTAS_ADMIN;
+
+    header("Location: " . $destino);
+
     exit;
 }
 
@@ -168,6 +188,5 @@ switch ($accion) {
     // ACCIÓN NO RECONOCIDA
     // =========================================================
     default:
-        header("Location: ../views/venta/index.php");
-        exit;
+        regresarConAlerta('error', 'Acción no válida', 'La acción solicitada no existe.');
 }

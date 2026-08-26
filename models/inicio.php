@@ -1,9 +1,21 @@
 <?php
 /**
- * Modelo Inicio — KPIs y datos del panel principal del Administrador.
+ * Modelo Inicio — KPIs y datos del panel principal.
  *
  * Se apoya en las mismas tablas que el módulo de Ventas:
  * venta, detalle_venta, producto, inventario.
+ *
+ * Todos los métodos relacionados con VENTAS aceptan un parámetro
+ * opcional $idUsuario:
+ *   - null (o no se pasa)  -> comportamiento igual que antes (Administrador: ve TODO)
+ *   - un id_usuario        -> filtra solo las ventas de ESE vendedor
+ *
+ * Los métodos de INVENTARIO/PRODUCTOS (stockBajo, totalProductos) son
+ * globales del negocio y no dependen del vendedor, así que no cambian.
+ *
+ * totalUsuarios() y gananciasSemana() (margen/costo) se dejan tal cual,
+ * son de uso exclusivo del Administrador y no se deben llamar desde
+ * la vista del vendedor.
  *
  * Stock bajo se calcula comparando i.stock_actual contra
  * i.stock_minimo (columna real de la tabla inventario).
@@ -20,14 +32,18 @@ class Inicio
     // =========================================================
     // VENTAS DEL DÍA (solo ventas activas, estado = 1)
     // =========================================================
-    public function ventasDia()
+    public function ventasDia($idUsuario = null)
     {
         try {
             $sql = "SELECT COALESCE(SUM(total), 0) AS total
                     FROM venta
-                    WHERE estado = 1 AND DATE(fecha) = CURDATE()";
+                    WHERE estado = 1 AND DATE(fecha) = CURDATE()"
+                 . ($idUsuario ? " AND id_usuario = :id" : "");
 
             $stmt = $this->conn->prepare($sql);
+            if ($idUsuario) {
+                $stmt->bindValue(':id', $idUsuario, PDO::PARAM_INT);
+            }
             $stmt->execute();
 
             return (float) $stmt->fetch(PDO::FETCH_ASSOC)['total'];
@@ -41,16 +57,20 @@ class Inicio
     // =========================================================
     // VENTAS DEL MES ACTUAL
     // =========================================================
-    public function ventasMes()
+    public function ventasMes($idUsuario = null)
     {
         try {
             $sql = "SELECT COALESCE(SUM(total), 0) AS total
                     FROM venta
                     WHERE estado = 1
                       AND MONTH(fecha) = MONTH(CURDATE())
-                      AND YEAR(fecha)  = YEAR(CURDATE())";
+                      AND YEAR(fecha)  = YEAR(CURDATE())"
+                 . ($idUsuario ? " AND id_usuario = :id" : "");
 
             $stmt = $this->conn->prepare($sql);
+            if ($idUsuario) {
+                $stmt->bindValue(':id', $idUsuario, PDO::PARAM_INT);
+            }
             $stmt->execute();
 
             return (float) $stmt->fetch(PDO::FETCH_ASSOC)['total'];
@@ -64,6 +84,8 @@ class Inicio
     // =========================================================
     // GANANCIAS DE LOS ÚLTIMOS 7 DÍAS (incluye hoy)
     // Ganancia = subtotal - (costo_unitario * cantidad) por línea
+    // SOLO ADMINISTRADOR: expone el costo de los productos.
+    // No pasarle id_usuario ni usar desde la vista del vendedor.
     // =========================================================
     public function gananciasSemana()
     {
@@ -86,9 +108,59 @@ class Inicio
     }
 
     // =========================================================
-    // PRODUCTOS CON STOCK BAJO
-    // Compara el stock_actual contra el stock_minimo propio
-    // de cada producto (columna real de la tabla inventario).
+    // INGRESOS TOTALES ACUMULADOS (histórico completo)
+    // Para el vendedor: sus ingresos de siempre.
+    // Para el admin (sin id_usuario): ingresos de todo el negocio.
+    // =========================================================
+    public function totalIngresos($idUsuario = null)
+    {
+        try {
+            $sql = "SELECT COALESCE(SUM(total), 0) AS total
+                    FROM venta
+                    WHERE estado = 1"
+                 . ($idUsuario ? " AND id_usuario = :id" : "");
+
+            $stmt = $this->conn->prepare($sql);
+            if ($idUsuario) {
+                $stmt->bindValue(':id', $idUsuario, PDO::PARAM_INT);
+            }
+            $stmt->execute();
+
+            return (float) $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+        } catch (PDOException $e) {
+            error_log("Error totalIngresos: " . $e->getMessage());
+            return 0;
+        }
+    }
+
+    // =========================================================
+    // TICKET PROMEDIO (valor promedio por venta)
+    // =========================================================
+    public function ticketPromedio($idUsuario = null)
+    {
+        try {
+            $sql = "SELECT COALESCE(AVG(total), 0) AS promedio
+                    FROM venta
+                    WHERE estado = 1"
+                 . ($idUsuario ? " AND id_usuario = :id" : "");
+
+            $stmt = $this->conn->prepare($sql);
+            if ($idUsuario) {
+                $stmt->bindValue(':id', $idUsuario, PDO::PARAM_INT);
+            }
+            $stmt->execute();
+
+            return (float) $stmt->fetch(PDO::FETCH_ASSOC)['promedio'];
+
+        } catch (PDOException $e) {
+            error_log("Error ticketPromedio: " . $e->getMessage());
+            return 0;
+        }
+    }
+
+    // =========================================================
+    // PRODUCTOS CON STOCK BAJO (global del negocio, no cambia)
     // =========================================================
     public function stockBajo()
     {
@@ -111,31 +183,19 @@ class Inicio
     }
 
     // =========================================================
-    // DETALLE DE PRODUCTOS CON STOCK BAJO (para tooltip/modal futuro)
+    // Total de usuarios registrados
     // =========================================================
-    public function detalleStockBajo()
-    {
-        try {
-            $sql = "SELECT p.nombre, i.stock_actual, i.stock_minimo
-                    FROM inventario i
-                    INNER JOIN producto p ON p.id_producto = i.id_producto
-                    WHERE p.estado = 1
-                      AND i.stock_actual <= i.stock_minimo
-                    ORDER BY (i.stock_minimo - i.stock_actual) DESC";
-
-            $stmt = $this->conn->prepare($sql);
-            $stmt->execute();
-
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        } catch (PDOException $e) {
-            error_log("Error detalleStockBajo: " . $e->getMessage());
-            return [];
-        }
-    }
+  public function totalClientes()
+{
+    $sql = "SELECT COUNT(*) AS total FROM cliente";
+    $stmt = $this->conn->prepare($sql);
+    $stmt->execute();
+    $fila = $stmt->fetch(PDO::FETCH_ASSOC);
+    return (int) $fila['total'];
+}
 
     // =========================================================
-    // TOTAL DE PRODUCTOS ACTIVOS
+    // TOTAL DE PRODUCTOS ACTIVOS (global del negocio, no cambia)
     // =========================================================
     public function totalProductos()
     {
@@ -156,14 +216,18 @@ class Inicio
     // =========================================================
     // CANTIDAD DE VENTAS DE HOY (para el subtítulo de la tarjeta)
     // =========================================================
-    public function contarVentasHoy()
+    public function contarVentasHoy($idUsuario = null)
     {
         try {
             $sql = "SELECT COUNT(*) AS total
                     FROM venta
-                    WHERE estado = 1 AND DATE(fecha) = CURDATE()";
+                    WHERE estado = 1 AND DATE(fecha) = CURDATE()"
+                 . ($idUsuario ? " AND id_usuario = :id" : "");
 
             $stmt = $this->conn->prepare($sql);
+            if ($idUsuario) {
+                $stmt->bindValue(':id', $idUsuario, PDO::PARAM_INT);
+            }
             $stmt->execute();
 
             return (int) $stmt->fetch(PDO::FETCH_ASSOC)['total'];
@@ -177,16 +241,20 @@ class Inicio
     // =========================================================
     // CANTIDAD DE VENTAS DEL MES (para el subtítulo de la tarjeta)
     // =========================================================
-    public function contarVentasMes()
+    public function contarVentasMes($idUsuario = null)
     {
         try {
             $sql = "SELECT COUNT(*) AS total
                     FROM venta
                     WHERE estado = 1
                       AND MONTH(fecha) = MONTH(CURDATE())
-                      AND YEAR(fecha)  = YEAR(CURDATE())";
+                      AND YEAR(fecha)  = YEAR(CURDATE())"
+                 . ($idUsuario ? " AND id_usuario = :id" : "");
 
             $stmt = $this->conn->prepare($sql);
+            if ($idUsuario) {
+                $stmt->bindValue(':id', $idUsuario, PDO::PARAM_INT);
+            }
             $stmt->execute();
 
             return (int) $stmt->fetch(PDO::FETCH_ASSOC)['total'];
@@ -199,6 +267,7 @@ class Inicio
 
     // =========================================================
     // TOTAL DE USUARIOS REGISTRADOS (activos)
+    // SOLO ADMINISTRADOR. No usar desde la vista del vendedor.
     // =========================================================
     public function totalUsuarios()
     {
@@ -221,17 +290,21 @@ class Inicio
     // Devuelve un arreglo asociativo ['2026-08-17' => 125000.0, ...]
     // con los 7 días completos, incluso los que no tuvieron ventas.
     // =========================================================
-    public function ventasUltimos7Dias()
+    public function ventasUltimos7Dias($idUsuario = null)
     {
         try {
             $sql = "SELECT DATE(fecha) AS dia, COALESCE(SUM(total), 0) AS total
                     FROM venta
                     WHERE estado = 1
-                      AND fecha >= (CURDATE() - INTERVAL 6 DAY)
+                      AND fecha >= (CURDATE() - INTERVAL 6 DAY)"
+                 . ($idUsuario ? " AND id_usuario = :id" : "") . "
                     GROUP BY DATE(fecha)
                     ORDER BY dia ASC";
 
             $stmt = $this->conn->prepare($sql);
+            if ($idUsuario) {
+                $stmt->bindValue(':id', $idUsuario, PDO::PARAM_INT);
+            }
             $stmt->execute();
             $filas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -256,19 +329,23 @@ class Inicio
     // =========================================================
     // TOP PRODUCTOS MÁS VENDIDOS (por cantidad, ventas activas)
     // =========================================================
-    public function productosMasVendidos($limite = 5)
+    public function productosMasVendidos($limite = 5, $idUsuario = null)
     {
         try {
             $sql = "SELECT p.nombre, SUM(dv.cantidad) AS cantidad_vendida
                     FROM detalle_venta dv
                     INNER JOIN venta v    ON v.id_venta = dv.id_venta
                     INNER JOIN producto p ON p.id_producto = dv.id_producto
-                    WHERE v.estado = 1
+                    WHERE v.estado = 1"
+                 . ($idUsuario ? " AND v.id_usuario = :id" : "") . "
                     GROUP BY dv.id_producto, p.nombre
                     ORDER BY cantidad_vendida DESC
                     LIMIT :limite";
 
             $stmt = $this->conn->prepare($sql);
+            if ($idUsuario) {
+                $stmt->bindValue(':id', $idUsuario, PDO::PARAM_INT);
+            }
             $stmt->bindValue(':limite', (int) $limite, PDO::PARAM_INT);
             $stmt->execute();
 
