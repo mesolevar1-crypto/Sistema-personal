@@ -55,7 +55,7 @@ foreach ($inventario as $fila) {
 
 $nombreArchivoPDF = 'Reporte_Inventario_' . date('Y-m-d');
 
-$titulo = 'Reporte de Inventario';
+$titulo = 'Reporte de Inventario - Administrador ';
 require_once __DIR__ . '/../layouts/header.php';
 require_once __DIR__ . '/../layouts/sidebar.php';
 ?>

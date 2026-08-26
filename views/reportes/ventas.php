@@ -55,7 +55,7 @@ $etiquetaAgrupacion = [
 // Nombre de archivo sugerido para el PDF
 $nombreArchivoPDF = 'Reporte_Ventas_' . date('Y-m-d', strtotime($desde)) . '_a_' . date('Y-m-d', strtotime($hasta));
 
-$titulo = 'Reporte de Ventas';
+$titulo = 'Reporte de Ventas - Administrador';
 require_once __DIR__ . '/../layouts/header.php';
 require_once __DIR__ . '/../layouts/sidebar.php';
 ?>

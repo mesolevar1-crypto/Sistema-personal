@@ -7,10 +7,15 @@
 - Controlador de autenticación: `controllers/AuthController.php`
 - Controlador de registro: `controllers/UsuarioController.php`
 - Modelo: `models/usuario.php`
+- Conexión: `config/databse.php` *(nombre real del archivo tal como está en el repo)*
+
+> **Nota:** la sección 1 (Landing Page) no se actualizó en esta revisión porque no se recibió el código actual de `public/index.php`. El resto del documento fue verificado directamente contra `AuthController.php`, `UsuarioController.php`, `login.php` y `registre.php`.
 
 ---
 
 ## 1. Landing Page (`public/index.php`)
+
+*(Sin cambios respecto a la versión anterior — pendiente de revisar contra el código actual)*
 
 ### ¿Qué es y para qué sirve?
 
@@ -18,51 +23,11 @@ Es la **primera pantalla que ve cualquier persona** cuando entra a la URL raíz 
 
 ### ¿Cómo está construida?
 
-Usa **TailwindCSS** cargado desde CDN con una configuración personalizada que define la paleta de colores del sistema:
+Usa **TailwindCSS** cargado desde CDN con una paleta de colores personalizada (verdes de marca) y las fuentes **DM Serif Display** (títulos) y **DM Sans** (cuerpo), cargadas desde Google Fonts.
 
-| Variable | Color | Uso |
-|---|---|---|
-| `brand-accent` | `#4A8C44` | Verde principal — botones, íconos, textos destacados |
-| `brand-dark` | `#1C2E1A` | Verde oscuro — títulos y texto principal |
-| `brand-muted` | `#4E6B4A` | Verde medio — texto secundario |
-| `brand-light` | `#DFF0DC` | Verde claro — fondos de tarjetas |
-| `brand-border` | `#C9E4C5` | Verde muy claro — bordes |
+### ¿Qué secciones tiene?
 
-Las fuentes son **DM Serif Display** (para títulos elegantes) y **DM Sans** (para texto de cuerpo), cargadas desde Google Fonts.
-
-### ¿Qué secciones tiene la página?
-
-**Navbar fijo** — barra de navegación con logo, enlaces de ancla (`#inicio`, `#beneficios`, `#catalogo`) y botón "Ingresar" que lleva directamente a `views/usuarios/login.php`. Tiene efecto de sombra al hacer scroll.
-
-**Hero** — sección principal con un carrusel de 3 imágenes de fondo (frutas y verduras de Unsplash) que rotan cada 5 segundos con transición de opacidad. Contiene el titular principal y dos botones: "Comenzar ahora" (va al login) y "Saber más" (baja a la sección de beneficios).
-
-**Beneficios** — grid de 3 tarjetas que explican las funcionalidades principales: Control de Inventario, Ventas Diarias y Ganancias Claras.
-
-**Catálogo** — muestra 4 productos de ejemplo (Manzana Roja, Plátano, Zanahoria, Papa) con imágenes de Unsplash para que el usuario vea cómo se verán sus productos en el sistema.
-
-**Footer** — fondo semitransparente con logo, descripción del sistema y enlace al login.
-
-### ¿Qué JavaScript usa?
-
-Todo el JavaScript es nativo (sin librerías externas):
-
-```javascript
-// Carrusel de fondo — cambia la imagen cada 5 segundos
-setInterval(() => {
-    slides[currentSlide].classList.remove('active', 'opacity-100');
-    slides[currentSlide].classList.add('opacity-0');
-    currentSlide = (currentSlide + 1) % slides.length;
-    slides[currentSlide].classList.remove('opacity-0');
-    slides[currentSlide].classList.add('active', 'opacity-100');
-}, 5000);
-
-// Efecto de sombra en el navbar al hacer scroll
-window.addEventListener('scroll', () => {
-    if (window.scrollY > 10) {
-        // Agrega sombra y fondo sólido cuando el usuario baja
-    }
-});
-```
+Navbar fijo, Hero con carrusel de imágenes, sección de Beneficios (3 tarjetas), Catálogo de ejemplo (4 productos) y Footer con enlace al login. El JavaScript es nativo, sin librerías externas.
 
 ---
 
@@ -71,8 +36,10 @@ window.addEventListener('scroll', () => {
 ### ¿Cómo está diseñada la pantalla?
 
 Es una tarjeta de **dos paneles** con animación de entrada:
-- **Panel izquierdo** (visible solo en pantallas ≥900px): imagen de fondo `img/login-bg.png` con overlay degradado negro y texto descriptivo del negocio.
-- **Panel derecho**: formulario blanco con logo circular, título "VentaNet", campos de correo y contraseña con íconos SVG, y botón de envío.
+- **Panel izquierdo**: formulario blanco con logo circular, título "VentaNet", campos de correo y contraseña con íconos SVG, casilla "Recordar mi sesión", enlace "¿Olvidaste tu contraseña?" (aún sin funcionalidad — `href="#"`) y botón de envío.
+- **Panel derecho** (visible solo en pantallas ≥900px): imagen de fondo cargada desde **Unsplash** (ya no es `img/login-bg.png` local) con overlay degradado, botón "← Regresar al Inicio" y texto descriptivo del negocio.
+
+> **Cambio respecto a la versión anterior:** el layout está invertido. Antes la imagen iba a la izquierda y el formulario a la derecha; ahora es al revés.
 
 ### ¿Qué pasa cuando el usuario hace clic en "Iniciar sesión"?
 
@@ -83,22 +50,41 @@ Usuario escribe correo + contraseña → clic en "Iniciar sesión"
 ↓
 AuthController.php recibe los datos por POST
 ↓
-¿Está bloqueado por intentos? → SÍ → muestra contador regresivo
-↓
 ¿Campos vacíos? → SÍ → alerta "Campos incompletos"
+↓
+¿Está bloqueado por intentos? → SÍ → muestra tiempo restante en el modal
+↓
+Conecta a la BD (config/databse.php) → si falla, alerta "Error del sistema"
 ↓
 ¿Existe el correo en la BD? → NO → incrementa contador de intentos
 ↓
-¿Contraseña correcta? → NO → incrementa contador de intentos
+¿Cuenta activa (estado_usuario = 1 y estado_persona = 1)? → NO → alerta "Cuenta inactiva" (no cuenta como intento fallido)
+↓
+¿Contraseña correcta (password_verify)? → NO → incrementa contador de intentos
 ↓
 ¿3 intentos fallidos? → SÍ → bloquea 2 minutos
 ↓
-Todo correcto → guarda sesión → redirige según rol
+Todo correcto → resetea intentos → regenera sesión → guarda $_SESSION['usuario'] → redirige según rol
 ```
+
+### Validación de cuenta activa (nuevo)
+
+Antes de verificar la contraseña, el controlador revisa que la cuenta esté activa en **dos tablas**:
+
+```php
+if (!isset($usuario['estado_usuario']) || (int)$usuario['estado_usuario'] !== 1) {
+    // "Cuenta inactiva. Contacta al administrador."
+}
+if (!isset($usuario['estado_persona']) || (int)$usuario['estado_persona'] !== 1) {
+    // "Cuenta inactiva. Contacta al administrador."
+}
+```
+
+Esto permite desactivar un usuario (por ejemplo, un empleado que ya no trabaja ahí) sin borrarlo de la base de datos. **Importante:** esta validación redirige directo con el mensaje de error, **no cuenta como intento fallido** — no incrementa `login_intentos`.
 
 ### ¿Cómo funciona el bloqueo por intentos fallidos?
 
-El sistema guarda tres variables en la sesión PHP:
+Sigue guardando tres variables en la sesión PHP:
 
 | Variable de sesión | Qué guarda |
 |---|---|
@@ -106,28 +92,23 @@ El sistema guarda tres variables en la sesión PHP:
 | `$_SESSION['login_bloqueado']` | true/false — si está bloqueado |
 | `$_SESSION['login_tiempo']` | Timestamp del momento en que se bloqueó |
 
-Al tercer intento fallido, `login_bloqueado` se pone en `true` y `login_tiempo` guarda el momento actual. En cada intento posterior, el sistema calcula `120 - (time() - login_tiempo)` para saber cuántos segundos faltan.
+Al tercer intento fallido (correo no encontrado o contraseña incorrecta), `falloLogin()` marca `login_bloqueado = true` y guarda `login_tiempo`. Tanto el **controlador** como la **vista** revisan si ya pasaron los 120 segundos: si sí, resetean las tres variables automáticamente (doble verificación, por si el usuario recarga la página de login sin volver a enviar el formulario).
 
-En la vista, un **contador regresivo en JavaScript** se actualiza cada segundo:
-```javascript
-var restantes = 120 - (Math.floor(Date.now()/1000) - bloqueadoEn);
-// Muestra: "Espera 1:45 minutos."
-```
-
-### ¿Cómo se muestran los intentos restantes?
-
-La vista lee `$_SESSION['login_intentos']` al cargar. Si hay intentos fallidos, muestra puntos de colores:
-- 🔴 Punto rojo = intento fallido consumido
-- ⚫ Punto gris = intento disponible
-- Texto: "Intento 2 de 3 — Te queda 1 intento."
+> **Cambio respecto a la versión anterior:** ya **no se muestran los puntos de colores** ("🔴🔴⚫ Intento 2 de 3"). Ahora el único indicador visual es que el botón "Iniciar sesión" queda `disabled` mientras dure el bloqueo, y el mensaje con los intentos restantes aparece dentro del texto del modal (ej: *"La contraseña no coincide. Te quedan 2 intento(s)."*).
 
 ### ¿Cómo se muestran las alertas del servidor?
 
-Al cargar la página, PHP lee `$_SESSION['alert']` y lo elimina inmediatamente con `unset()`. Si existía una alerta, la renderiza en un bloque `<script>` que ejecuta `Swal.fire()` al cargar el DOM. Esto permite que el servidor comunique resultados sin parámetros en la URL.
+**Cambio respecto a la versión anterior:** ya no se usa `Swal.fire()` (SweetAlert2). Ahora el propio `login.php` construye un **modal HTML propio** (`.modal-overlay` / `.modal-caja`) directamente en PHP, según el contenido de `$_SESSION['alert']`:
+
+- `icon: success` → ícono verde de check
+- `icon: warning` → ícono amarillo de advertencia
+- cualquier otro valor (`error`) → ícono rojo de X
+
+El botón "OK" del modal simplemente vuelve a `login.php` (recarga limpia, sin alerta pendiente).
 
 ### ¿Qué hace el botón del ojo en la contraseña?
 
-La función `togglePassword()` alterna el tipo del campo entre `password` (oculto) y `text` (visible), y cambia el ícono SVG entre el ojo abierto y el ojo tachado.
+La función ahora se llama `togglePass()` (antes `togglePassword()`) y alterna el campo `#campo-pass` entre `password` y `text`, cambiando el ícono SVG entre ojo abierto y ojo tachado.
 
 ---
 
@@ -135,88 +116,59 @@ La función `togglePassword()` alterna el tipo del campo entre `password` (ocult
 
 ### ¿Cómo está diseñada la pantalla?
 
-Mismo diseño de dos paneles que el login, con una diferencia importante:
-- **Panel izquierdo**: usa una imagen de mercado de frutas y verduras cargada directamente desde **Unsplash CDN** (no se descarga al servidor).
-- **Panel derecho**: formulario más extenso con campos en grid de dos columnas.
+Dos paneles, en el mismo orden que antes:
+- **Panel izquierdo**: imagen de fondo (Unsplash) con overlay, botón "← Volver al Login" y texto de bienvenida.
+- **Panel derecho**: formulario con campos en grid de dos columnas (Nombre + Teléfono, luego Contraseña + Confirmar contraseña).
 
 ### ¿Qué campos solicita?
 
 | Campo | Obligatorio | Validación |
 |---|---|---|
 | Nombre completo | ✅ Sí | No puede estar vacío |
-| Teléfono | ❌ No | Solo formato si se ingresa |
-| Correo electrónico | ✅ Sí | Debe tener formato válido (usuario@dominio.com) |
-| Contraseña | ✅ Sí | Mínimo 6 caracteres |
-| Confirmar contraseña | ✅ Sí | Debe coincidir exactamente con la contraseña |
-| Rol del usuario | ✅ Sí | Administrador (1) o Vendedor (2) |
+| Teléfono | ❌ No | Sin validación de formato en el HTML |
+| Correo electrónico | ✅ Sí | `type="email"` + validación del navegador |
+| Contraseña | ✅ Sí | Campo `required`, sin longitud mínima visible en el HTML |
+| Confirmar contraseña | ✅ Sí | Campo `required` |
+| Términos y condiciones | ✅ Sí (checkbox) | **Nuevo** — obligatorio marcarlo para registro público |
+| Rol del usuario | — | **Ya no es un campo que el usuario elige.** Se envía oculto: `<input type="hidden" name="rol" value="1">` |
+
+> ⚠️ **Observación para verificar:** el formulario público ahora envía siempre `rol=1` de forma fija, sin selector. Según `AuthController.php`, el rol `1` es el que redirige a `views/inicio/index.php` (antes, en la documentación previa, el rol `1` correspondía a "Administrador"). No quedó claro si esto es intencional (por ejemplo, si los roles se renumeraron y ahora `1` significa "Cliente") o si es un descuido que estaría dando permisos de administrador a cualquiera que se registre desde la página pública. Vale la pena confirmarlo con quien mantiene `models/usuario.php` antes de dar esto por documentado como comportamiento definitivo.
 
 ### ¿Qué hace el controlador al recibir el registro?
 
-El formulario envía los datos a `controllers/UsuarioController.php`. El controlador aplica **5 validaciones en el servidor** (independientes del navegador):
+`UsuarioController.php` ahora maneja **dos flujos distintos** según de dónde venga la petición:
 
-**Validación 1 — Campos obligatorios:**
-```php
-if (empty($nombre) || empty($correo) || empty($password) || empty($confirmar_password)) {
-    // Error: "Debe completar todos los campos"
-}
-```
+**Flujo público** (formulario de `registre.php`):
+1. Verifica que sea POST.
+2. Recibe los datos (`nombre`, `telefono`, `correo`, `password`, `confirmar_password`).
+3. **Valida que se haya marcado la casilla de términos y condiciones** — si no, alerta "Debe aceptar los términos y condiciones" (nuevo, no estaba en la versión anterior).
+4. Conecta a la base de datos.
+5. Llama a `$usuarioModel->registrar($datos)`.
+6. Si el resultado es `true` → guarda `$_SESSION['registro_alert']` (success) y **redirige de vuelta a `registre.php`** (ya no a `login.php`), con el mensaje "Tu cuenta fue creada correctamente. Ahora puedes iniciar sesión."
+7. Si falla → guarda `$_SESSION['registro_alert']` (error) con el mensaje que devuelva el modelo, y vuelve a `registre.php`.
 
-**Validación 2 — Formato de correo:**
-```php
-if (!filter_var($correo, FILTER_VALIDATE_EMAIL)) {
-    // Error: "Ingrese un correo válido"
-}
-```
+**Flujo desde administrador** (cuando llega `desde_admin=1` en el POST, típicamente desde un modal en `admin.php`):
+1. Primero verifica que quien está haciendo la petición realmente tenga sesión activa **con rol "administrador"** — si no, lo manda directo a `login.php`.
+2. **No exige la casilla de términos y condiciones** (ese paso se salta).
+3. Usa `$_SESSION['alert']` (no `registro_alert`) para los mensajes.
+4. Si todo sale bien, **no cierra la sesión del admin ni lo redirige al login o registro** — vuelve a `admin.php` con un mensaje de éxito, para que pueda seguir gestionando usuarios sin interrupciones.
+5. Si falla, también vuelve a `admin.php` con el error.
 
-**Validación 3 — Contraseñas coinciden:**
-```php
-if ($password !== $confirmar_password) {
-    // Error: "Las contraseñas no coinciden"
-}
-```
-
-**Validación 4 — Longitud mínima:**
-```php
-if (strlen($password) < 6) {
-    // Error: "Mínimo 6 caracteres"
-}
-```
-
-**Validación 5 — Correo duplicado:**
-```php
-if ($usuario->existeCorreo($correo)) {
-    // Error: "Este correo ya está registrado"
-    // El modelo ejecuta: SELECT id_persona FROM Persona WHERE correo = ?
-}
-```
+> **Cambio respecto a la versión anterior:** las claves de sesión usadas para las alertas ahora son distintas según el flujo (`registro_alert` para público, `alert` para admin). Si estás depurando por qué no aparece una alerta, revisa que estés mirando la clave correcta.
 
 ### ¿Cómo se guarda la contraseña?
 
-**Nunca se guarda en texto plano.** Se usa `password_hash($password, PASSWORD_DEFAULT)` que genera un hash bcrypt único. Aunque dos usuarios tengan la misma contraseña, sus hashes serán completamente diferentes. Esto protege las contraseñas incluso si alguien accede directamente a la base de datos.
+*(Sin cambios visibles en este código — sigue dependiendo de `models/usuario.php`, no incluido en esta revisión. Se mantiene la descripción anterior: se asume `password_hash()` con `PASSWORD_DEFAULT`, pero esto no se pudo reverificar porque el modelo no fue proporcionado esta vez.)*
 
-### ¿Cómo se guarda el usuario en la BD?
+### ¿Cómo se muestran las alertas?
 
-El modelo `registrar()` abre una **transacción** (para garantizar que ambas inserciones se completen o ninguna):
+Igual que en el login: **ya no usa SweetAlert2**. `registre.php` arma su propio modal HTML. El botón "OK" del modal es dinámico:
+- Si la alerta fue de éxito (`icon: success`) → el botón lleva a `login.php`.
+- Cualquier otro caso (error, warning) → el botón vuelve a `registre.php` para reintentar.
 
-```
-Paso 1: INSERT INTO Persona (nombre, telefono, correo)
-        → Obtiene el id_persona generado automáticamente
+### Diferencia con el login: no hay botón de mostrar/ocultar contraseña
 
-Paso 2: INSERT INTO Usuario (contraseña, id_persona, id_rol)
-        → Usa el id_persona del paso anterior
-
-Si algo falla → rollBack() → no queda nada a medias
-Si todo sale bien → commit() → ambos registros quedan guardados
-```
-
-### ¿Qué pasa si el registro viene desde el panel de admin?
-
-El formulario del modal en `admin.php` tiene un campo oculto:
-```html
-<input type="hidden" name="desde_admin" value="1">
-```
-
-El controlador detecta este campo y, en lugar de redirigir a `registre.php`, redirige de vuelta a `admin.php`. Esto evita que el administrador sea sacado del sistema al crear un nuevo usuario.
+A diferencia de `login.php`, los campos de contraseña en `registre.php` **no tienen el ícono de ojo** para alternar visibilidad — son campos `type="password"` simples.
 
 ---
 
@@ -230,32 +182,41 @@ public/index.php  (Landing — sin sesión requerida)
 views/usuarios/login.php
 ↓ envía formulario POST
 controllers/AuthController.php
-    ├── ¿Bloqueado? → muestra contador regresivo
-    ├── ¿Campos vacíos? → alerta de campos incompletos
-    ├── ¿Usuario no existe? → error + contador de intentos
-    ├── ¿Contraseña incorrecta? → error + contador de intentos
-    ├── ¿3 intentos fallidos? → bloqueo 2 minutos
+    ├── ¿No es POST? → redirige a login.php
+    ├── ¿Campos vacíos? → alerta "Campos incompletos"
+    ├── ¿Bloqueado (< 2 min desde el 3er intento)? → muestra tiempo restante
+    ├── Conecta a BD (config/databse.php) → si falla, "Error del sistema"
+    ├── ¿Correo no existe? → incrementa intentos → posible bloqueo
+    ├── ¿Cuenta inactiva (estado_usuario o estado_persona ≠ 1)? → alerta directa, NO cuenta como intento
+    ├── ¿Contraseña incorrecta? → incrementa intentos → posible bloqueo
     └── Todo correcto →
+            resetea intentos/bloqueo
             session_regenerate_id(true)  ← seguridad
-            $_SESSION['usuario'] = [id, nombre, correo, rol_id, rol]
-            ├── rol_id = 1 → views/dashboard/admin.php
-            └── rol_id = 2 → views/dashboard/vendedor.php
+            $_SESSION['usuario'] = [id_usuario, id_persona, nombre, email, telefono, rol_id, rol]
+            ├── rol_id = 1 → views/inicio/index.php
+            └── cualquier otro rol_id → views/dashboard/vendedor.php
 
-Ruta alternativa (crear cuenta nueva):
+Ruta alternativa (crear cuenta nueva — flujo público):
 views/usuarios/registre.php
-↓ envía formulario POST
+↓ envía formulario POST (rol=1 fijo, oculto)
 controllers/UsuarioController.php
-    ├── Validación 1: campos obligatorios
-    ├── Validación 2: formato de correo
-    ├── Validación 3: contraseñas coinciden
-    ├── Validación 4: mínimo 6 caracteres
-    ├── Validación 5: correo no duplicado
+    ├── ¿No es POST? → redirige a registre.php
+    ├── ¿No marcó términos y condiciones? → alerta "Debe aceptar los términos"
+    ├── Conecta a BD
+    ├── models/usuario.php → registrar()  (validaciones internas del modelo)
     └── Todo correcto →
-            password_hash() ← cifra la contraseña
-            models/usuario.php → registrar()
-                ├── INSERT INTO Persona
-                └── INSERT INTO Usuario
-            → redirige a login.php (el usuario debe hacer login manualmente)
+            $_SESSION['registro_alert'] = éxito
+            → redirige a registre.php (el usuario debe hacer login manualmente)
+
+Ruta alternativa (crear usuario desde el panel admin):
+admin.php (modal) → POST con desde_admin=1
+controllers/UsuarioController.php
+    ├── ¿Sesión activa con rol "administrador"? → si no, a login.php
+    ├── NO exige términos y condiciones
+    ├── models/usuario.php → registrar()
+    └── Todo correcto o con error →
+            $_SESSION['alert'] = resultado
+            → siempre vuelve a admin.php (nunca cierra la sesión del admin)
 ```
 
 ---
@@ -267,9 +228,11 @@ Cuando el login es exitoso, el sistema guarda en `$_SESSION['usuario']`:
 | Clave | Qué contiene | Para qué se usa |
 |---|---|---|
 | `id_usuario` | ID numérico del usuario | Filtrar ventas propias del vendedor |
+| `id_persona` | ID de la tabla Persona asociada | **Nuevo** — vincula con datos personales |
 | `nombre` | Nombre completo | Mostrar en el header y en las tablas |
-| `correo` | Correo electrónico | Referencia del usuario activo |
-| `rol_id` | 1 (Admin) o 2 (Vendedor) | Redirigir al dashboard correcto |
-| `rol` | "Administrador" o "Vendedor" | Mostrar en el header, controlar acceso |
+| `email` | Correo electrónico | **Renombrado** — antes se documentaba como `correo`, el código real usa la clave `email` |
+| `telefono` | Teléfono del usuario | **Nuevo** — no estaba documentado antes |
+| `rol_id` | ID numérico del rol | Redirigir al dashboard correcto |
+| `rol` | Nombre del rol (ej. "Administrador") | Mostrar en el header, controlar acceso |
 
-Esta sesión se destruye completamente cuando el usuario hace clic en "Cerrar Sesión", que llama a `AuthController.php?accion=logout` y ejecuta `session_unset()` + `session_destroy()`.
+La sesión se destruye completamente al llamar a `AuthController.php?accion=logout`, que limpia el arreglo `$_SESSION`, borra la cookie de sesión (usando `session_get_cookie_params()`) y ejecuta `session_destroy()`.
