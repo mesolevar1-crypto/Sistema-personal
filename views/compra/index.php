@@ -120,25 +120,50 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 .item-row {
     background:#F8F8F8;
     border:1.5px solid #E5E7EB;
-    border-radius:10px;
-    padding:12px;
+    border-radius:12px;
+    padding:16px;
     display:flex;
     flex-direction:column;
-    gap:10px;
+    gap:14px;
 }
-.item-row-grid {
-    display:grid;
-    grid-template-columns: minmax(0, 1.3fr) 82px 88px 96px 82px 88px 108px 28px;
-    gap:8px;
-    align-items:center;
-}
-.item-row-label {
-    display:block;
+.item-row-seccion {
     font-size:.62rem;
     color:#9CA3AF;
     font-weight:700;
     text-transform:uppercase;
-    margin-bottom:3px;
+    letter-spacing:.04em;
+    margin-bottom:6px;
+}
+.item-row-fila1 {
+    display:grid;
+    grid-template-columns: 2fr 1fr;
+    gap:12px;
+    margin-bottom:14px;
+}
+.item-row-fila2 {
+    display:grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap:12px;
+    margin-bottom:14px;
+}
+.item-row-fila3 {
+    display:grid;
+    grid-template-columns: 1fr 1fr 30px;
+    gap:12px;
+    align-items:end;
+}
+.item-row-label {
+    display:block;
+    font-size:.78rem;
+    font-weight:700;
+    color:#171717;
+    margin-bottom:4px;
+}
+.item-row-ayuda {
+    font-size:.68rem;
+    color:#9CA3AF;
+    margin-top:4px;
+    line-height:1.3;
 }
 .paginacion {
     padding:14px 20px;
@@ -168,7 +193,7 @@ require_once __DIR__ . '/../layouts/sidebar.php';
     pointer-events:none;
 }
 @media (max-width:900px) {
-    .item-row-grid {
+    .item-row-fila1, .item-row-fila2, .item-row-fila3 {
         grid-template-columns: 1fr;
     }
 }
@@ -444,7 +469,7 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                         Agregar producto
                     </button>
                 </div>
-                <div id="filasProductos" style="display:flex;flex-direction:column;gap:10px;"></div>
+                <div id="filasProductos" style="display:flex;flex-direction:column;gap:12px;"></div>
             </div>
 
             <!-- TOTAL -->
@@ -661,6 +686,12 @@ function reconstruirOpcionesProducto(selectEl, idProveedor, idx) {
 
 // ============================================================
 // AGREGAR FILA
+//
+// Formulario reorganizado en 3 secciones apiladas (en vez de una
+// sola fila de 7 columnas apretadas): "Qué compras", "Cómo lo
+// empaqueta el proveedor" y "Precio". Cada campo conserva su
+// mismo id/name original para no romper la validación ni el
+// cálculo existente.
 // ============================================================
 function agregarFila() {
     var proveedor = document.getElementById('selectProveedor');
@@ -683,70 +714,89 @@ function agregarFila() {
     div.id = 'fila-' + idx;
 
     div.innerHTML =
-        '<div class="item-row-grid">' +
+        // ---------- SECCIÓN 1: QUÉ COMPRAS ----------
+        '<div>' +
+            '<p class="item-row-seccion">Qué compras</p>' +
+            '<div class="item-row-fila1">' +
 
-            // PRODUCTO
-            '<div>' +
-                '<span class="item-row-label">Producto</span>' +
-                '<select class="campo-input select-producto" name="id_producto[]" data-idx="' + idx + '" required ' +
-                    'onchange="onProductoChange(' + idx + ')" style="padding:8px;">' +
-                    '<option value="">Seleccionar producto</option>' +
-                '</select>' +
-            '</div>' +
-
-            // UNIDAD DE COMPRA (select desde el catálogo `unidades_medida`)
-            '<div>' +
-                '<span class="item-row-label">Unidad</span>' +
-                '<select class="campo-input" name="id_unidad[]" id="unidad-' + idx + '" required style="padding:8px;">' +
-                    generarOpcionesUnidad('Unidad') +
-                '</select>' +
-            '</div>' +
-
-            // CONTENIDO POR UNIDAD (ej. 1 bulto = 50 libras)
-            '<div>' +
-                '<span class="item-row-label">Contenido</span>' +
-                '<input type="number" name="cantidad_por_unidad[]" id="cpu-' + idx + '" min="1" step="1" value="1" required ' +
-                    'oninput="calcularFila(' + idx + ')" class="campo-input" style="text-align:center;padding:8px;">' +
-            '</div>' +
-
-            // UNIDAD DE CONTENIDO (segunda FK hacia unidades_medida)
-            '<div>' +
-                '<span class="item-row-label">Unid. contenido</span>' +
-                '<select class="campo-input" name="id_unidad_contenido[]" id="unidadcontenido-' + idx + '" required style="padding:8px;">' +
-                    generarOpcionesUnidad('Contenido') +
-                '</select>' +
-            '</div>' +
-
-            // CANTIDAD DE PRESENTACIONES COMPRADAS
-            '<div>' +
-                '<span class="item-row-label">Cantidad</span>' +
-                '<input type="number" name="cantidad[]" id="cant-' + idx + '" min="1" step="1" value="1" required ' +
-                    'oninput="calcularFila(' + idx + ')" class="campo-input" style="text-align:center;padding:8px;">' +
-            '</div>' +
-
-            // PRECIO DE COMPRA NEGOCIADO (lo escribe el usuario)
-            '<div>' +
-                '<span class="item-row-label">Precio compra</span>' +
-                '<input type="number" name="precio_compra[]" id="precio-' + idx + '" min="0.01" step="0.01" required ' +
-                    'oninput="calcularFila(' + idx + ')" class="campo-input" style="padding:8px;" placeholder="0">' +
-            '</div>' +
-
-            // SUBTOTAL
-            '<div>' +
-                '<span class="item-row-label">Subtotal</span>' +
-                '<div style="position:relative;">' +
-                    '<span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:#9CA3AF;font-size:.8rem;">$</span>' +
-                    '<input type="text" id="subvisual-' + idx + '" value="0" readonly class="campo-input" ' +
-                        'style="padding:8px 8px 8px 22px;text-align:right;background:#fff;font-weight:700;color:#00875F;cursor:not-allowed;">' +
+                '<div>' +
+                    '<span class="item-row-label">Producto</span>' +
+                    '<select class="campo-input select-producto" name="id_producto[]" data-idx="' + idx + '" required ' +
+                        'onchange="onProductoChange(' + idx + ')">' +
+                        '<option value="">Seleccionar producto</option>' +
+                    '</select>' +
+                    '<p class="item-row-ayuda">El producto que estás comprando al proveedor.</p>' +
                 '</div>' +
+
+                '<div>' +
+                    '<span class="item-row-label">Cantidad</span>' +
+                    '<input type="number" name="cantidad[]" id="cant-' + idx + '" min="1" step="1" value="1" required ' +
+                        'oninput="calcularFila(' + idx + ')" class="campo-input" style="text-align:center;">' +
+                    '<p class="item-row-ayuda">Cuántas unidades de compra vas a llevar.</p>' +
+                '</div>' +
+
             '</div>' +
+        '</div>' +
 
-            // QUITAR
-            '<button type="button" onclick="quitarFila(' + idx + ')" title="Quitar producto" ' +
-                'style="width:26px;height:26px;border-radius:6px;background:#fde8e8;border:none;color:#E53935;cursor:pointer;display:flex;align-items:center;justify-content:center;align-self:end;margin-bottom:2px;">' +
-                '<i class="fas fa-times" style="font-size:.65rem;"></i>' +
-            '</button>' +
+        // ---------- SECCIÓN 2: CÓMO LO EMPAQUETA EL PROVEEDOR ----------
+        '<div>' +
+            '<p class="item-row-seccion">Cómo lo empaqueta el proveedor</p>' +
+            '<div class="item-row-fila2">' +
 
+                '<div>' +
+                    '<span class="item-row-label">Unidad de compra</span>' +
+                    '<select class="campo-input" name="id_unidad[]" id="unidad-' + idx + '" required>' +
+                        generarOpcionesUnidad('Unidad') +
+                    '</select>' +
+                    '<p class="item-row-ayuda">La presentación en que te vende: caja, bulto, paquete.</p>' +
+                '</div>' +
+
+                '<div>' +
+                    '<span class="item-row-label">Contenido</span>' +
+                    '<input type="number" name="cantidad_por_unidad[]" id="cpu-' + idx + '" min="1" step="1" value="1" required ' +
+                        'oninput="calcularFila(' + idx + ')" class="campo-input" style="text-align:center;">' +
+                    '<p class="item-row-ayuda">Cuántas piezas trae cada presentación.</p>' +
+                '</div>' +
+
+                '<div>' +
+                    '<span class="item-row-label">Unid. contenido</span>' +
+                    '<select class="campo-input" name="id_unidad_contenido[]" id="unidadcontenido-' + idx + '" required>' +
+                        generarOpcionesUnidad('Contenido') +
+                    '</select>' +
+                    '<p class="item-row-ayuda">En qué se mide ese contenido interno.</p>' +
+                '</div>' +
+
+            '</div>' +
+        '</div>' +
+
+        // ---------- SECCIÓN 3: PRECIO ----------
+        '<div>' +
+            '<p class="item-row-seccion">Precio</p>' +
+            '<div class="item-row-fila3">' +
+
+                '<div>' +
+                    '<span class="item-row-label">Precio compra</span>' +
+                    '<input type="number" name="precio_compra[]" id="precio-' + idx + '" min="0.01" step="0.01" required ' +
+                        'oninput="calcularFila(' + idx + ')" class="campo-input" placeholder="0">' +
+                    '<p class="item-row-ayuda">Lo que pagas por cada unidad de compra.</p>' +
+                '</div>' +
+
+                '<div>' +
+                    '<span class="item-row-label">Subtotal</span>' +
+                    '<div style="position:relative;">' +
+                        '<span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:#9CA3AF;font-size:.8rem;">$</span>' +
+                        '<input type="text" id="subvisual-' + idx + '" value="0" readonly class="campo-input" ' +
+                            'style="padding-left:22px;text-align:right;background:#fff;font-weight:700;color:#00875F;cursor:not-allowed;">' +
+                    '</div>' +
+                    '<p class="item-row-ayuda">Cantidad × precio de compra.</p>' +
+                '</div>' +
+
+                '<button type="button" onclick="quitarFila(' + idx + ')" title="Quitar producto" ' +
+                    'style="width:26px;height:26px;border-radius:6px;background:#fde8e8;border:none;color:#E53935;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-bottom:4px;">' +
+                    '<i class="fas fa-times" style="font-size:.65rem;"></i>' +
+                '</button>' +
+
+            '</div>' +
         '</div>';
 
     container.appendChild(div);

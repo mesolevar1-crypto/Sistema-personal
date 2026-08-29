@@ -138,25 +138,50 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 .item-row {
     background:#F8F8F8;
     border:1.5px solid #E5E7EB;
-    border-radius:10px;
-    padding:12px;
+    border-radius:12px;
+    padding:16px;
     display:flex;
     flex-direction:column;
-    gap:10px;
+    gap:14px;
 }
-.item-row-grid {
-    display:grid;
-    grid-template-columns: minmax(0, 1.1fr) 74px 80px 88px 74px 80px 66px 96px 26px;
-    gap:8px;
-    align-items:center;
-}
-.item-row-label {
-    display:block;
+.item-row-seccion {
     font-size:.62rem;
     color:#9CA3AF;
     font-weight:700;
     text-transform:uppercase;
-    margin-bottom:3px;
+    letter-spacing:.04em;
+    margin-bottom:6px;
+}
+.item-row-fila1 {
+    display:grid;
+    grid-template-columns: 2fr 1fr;
+    gap:12px;
+    margin-bottom:14px;
+}
+.item-row-fila2 {
+    display:grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap:12px;
+    margin-bottom:14px;
+}
+.item-row-fila3 {
+    display:grid;
+    grid-template-columns: 1fr 1fr 1fr 30px;
+    gap:12px;
+    align-items:end;
+}
+.item-row-label {
+    display:block;
+    font-size:.78rem;
+    font-weight:700;
+    color:#171717;
+    margin-bottom:4px;
+}
+.item-row-ayuda {
+    font-size:.68rem;
+    color:#9CA3AF;
+    margin-top:4px;
+    line-height:1.3;
 }
 .paginacion {
     padding:14px 20px;
@@ -215,7 +240,7 @@ require_once __DIR__ . '/../layouts/sidebar.php';
 }
 
 @media (max-width:900px) {
-    .item-row-grid {
+    .item-row-fila1, .item-row-fila2, .item-row-fila3 {
         grid-template-columns: 1fr;
     }
 }
@@ -555,7 +580,7 @@ require_once __DIR__ . '/../layouts/sidebar.php';
                         Agregar producto
                     </button>
                 </div>
-                <div id="filasProductos" style="display:flex;flex-direction:column;gap:10px;"></div>
+                <div id="filasProductos" style="display:flex;flex-direction:column;gap:12px;"></div>
             </div>
 
             <!-- TOTAL -->
@@ -775,6 +800,12 @@ function reconstruirOpcionesProducto(selectEl, idx) {
 
 // ============================================================
 // AGREGAR FILA
+//
+// Formulario reorganizado en 3 secciones apiladas (en vez de una
+// sola fila de 9 columnas apretadas): "Qué vendes", "Cómo se lo
+// vendes al cliente" y "Precio y descuento". Cada campo conserva
+// su mismo id/name original para no romper la validación ni el
+// cálculo existente.
 // ============================================================
 function agregarFila() {
     var container = document.getElementById('filasProductos');
@@ -784,77 +815,96 @@ function agregarFila() {
     div.id = 'fila-' + idx;
 
     div.innerHTML =
-        '<div class="item-row-grid">' +
+        // ---------- SECCIÓN 1: QUÉ VENDES ----------
+        '<div>' +
+            '<p class="item-row-seccion">Qué vendes</p>' +
+            '<div class="item-row-fila1">' +
 
-            // PRODUCTO
-            '<div>' +
-                '<span class="item-row-label">Producto</span>' +
-                '<select class="campo-input select-producto" name="id_producto[]" data-idx="' + idx + '" required ' +
-                    'onchange="onProductoChange(' + idx + ')" style="padding:8px;">' +
-                    '<option value="">Seleccionar producto</option>' +
-                '</select>' +
-            '</div>' +
-
-            // UNIDAD DE VENTA
-            '<div>' +
-                '<span class="item-row-label">Unidad</span>' +
-                '<select class="campo-input" name="id_unidad[]" id="unidad-' + idx + '" required style="padding:8px;">' +
-                    generarOpcionesUnidad('Unidad') +
-                '</select>' +
-            '</div>' +
-
-            // CONTENIDO POR UNIDAD
-            '<div>' +
-                '<span class="item-row-label">Contenido</span>' +
-                '<input type="number" name="cantidad_por_unidad[]" id="cpu-' + idx + '" min="1" step="1" value="1" required ' +
-                    'oninput="calcularFila(' + idx + ')" class="campo-input" style="text-align:center;padding:8px;">' +
-            '</div>' +
-
-            // UNIDAD DE CONTENIDO
-            '<div>' +
-                '<span class="item-row-label">Unid. contenido</span>' +
-                '<select class="campo-input" name="id_unidad_contenido[]" id="unidadcontenido-' + idx + '" required style="padding:8px;">' +
-                    generarOpcionesUnidad('Contenido') +
-                '</select>' +
-            '</div>' +
-
-            // CANTIDAD
-            '<div>' +
-                '<span class="item-row-label">Cantidad</span>' +
-                '<input type="number" name="cantidad[]" id="cant-' + idx + '" min="1" step="1" value="1" required ' +
-                    'oninput="calcularFila(' + idx + ')" class="campo-input" style="text-align:center;padding:8px;">' +
-            '</div>' +
-
-            // PRECIO DE VENTA
-            '<div>' +
-                '<span class="item-row-label">Precio venta</span>' +
-                '<input type="number" name="precio_venta[]" id="precio-' + idx + '" min="0.01" step="0.01" required ' +
-                    'oninput="calcularFila(' + idx + ')" class="campo-input" style="padding:8px;" placeholder="0">' +
-            '</div>' +
-
-            // DESCUENTO %
-            '<div>' +
-                '<span class="item-row-label">Desc. %</span>' +
-                '<input type="number" name="descuento_porcentaje[]" id="desc-' + idx + '" min="0" max="100" step="0.01" value="0" ' +
-                    'oninput="calcularFila(' + idx + ')" class="campo-input" style="text-align:center;padding:8px;">' +
-            '</div>' +
-
-            // SUBTOTAL
-            '<div>' +
-                '<span class="item-row-label">Subtotal</span>' +
-                '<div style="position:relative;">' +
-                    '<span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:#9CA3AF;font-size:.8rem;">$</span>' +
-                    '<input type="text" id="subvisual-' + idx + '" value="0" readonly class="campo-input" ' +
-                        'style="padding:8px 8px 8px 22px;text-align:right;background:#fff;font-weight:700;color:#00875F;cursor:not-allowed;">' +
+                '<div>' +
+                    '<span class="item-row-label">Producto</span>' +
+                    '<select class="campo-input select-producto" name="id_producto[]" data-idx="' + idx + '" required ' +
+                        'onchange="onProductoChange(' + idx + ')">' +
+                        '<option value="">Seleccionar producto</option>' +
+                    '</select>' +
+                    '<p class="item-row-ayuda">El producto que le estás vendiendo al cliente.</p>' +
                 '</div>' +
+
+                '<div>' +
+                    '<span class="item-row-label">Cantidad</span>' +
+                    '<input type="number" name="cantidad[]" id="cant-' + idx + '" min="1" step="1" value="1" required ' +
+                        'oninput="calcularFila(' + idx + ')" class="campo-input" style="text-align:center;">' +
+                    '<p class="item-row-ayuda">Cuántas unidades de venta le estás entregando.</p>' +
+                '</div>' +
+
             '</div>' +
+        '</div>' +
 
-            // QUITAR
-            '<button type="button" onclick="quitarFila(' + idx + ')" title="Quitar producto" ' +
-                'style="width:26px;height:26px;border-radius:6px;background:#fde8e8;border:none;color:#E53935;cursor:pointer;display:flex;align-items:center;justify-content:center;align-self:end;margin-bottom:2px;">' +
-                '<i class="fas fa-times" style="font-size:.65rem;"></i>' +
-            '</button>' +
+        // ---------- SECCIÓN 2: CÓMO SE LO VENDES AL CLIENTE ----------
+        '<div>' +
+            '<p class="item-row-seccion">Cómo se lo vendes al cliente</p>' +
+            '<div class="item-row-fila2">' +
 
+                '<div>' +
+                    '<span class="item-row-label">Unidad de venta</span>' +
+                    '<select class="campo-input" name="id_unidad[]" id="unidad-' + idx + '" required>' +
+                        generarOpcionesUnidad('Unidad') +
+                    '</select>' +
+                    '<p class="item-row-ayuda">La presentación en que se lo llevas: pieza, paquete, caja.</p>' +
+                '</div>' +
+
+                '<div>' +
+                    '<span class="item-row-label">Contenido</span>' +
+                    '<input type="number" name="cantidad_por_unidad[]" id="cpu-' + idx + '" min="1" step="1" value="1" required ' +
+                        'oninput="calcularFila(' + idx + ')" class="campo-input" style="text-align:center;">' +
+                    '<p class="item-row-ayuda">Cuántas piezas trae cada presentación vendida.</p>' +
+                '</div>' +
+
+                '<div>' +
+                    '<span class="item-row-label">Unid. contenido</span>' +
+                    '<select class="campo-input" name="id_unidad_contenido[]" id="unidadcontenido-' + idx + '" required>' +
+                        generarOpcionesUnidad('Contenido') +
+                    '</select>' +
+                    '<p class="item-row-ayuda">En qué se mide ese contenido interno.</p>' +
+                '</div>' +
+
+            '</div>' +
+        '</div>' +
+
+        // ---------- SECCIÓN 3: PRECIO Y DESCUENTO ----------
+        '<div>' +
+            '<p class="item-row-seccion">Precio y descuento</p>' +
+            '<div class="item-row-fila3">' +
+
+                '<div>' +
+                    '<span class="item-row-label">Precio venta</span>' +
+                    '<input type="number" name="precio_venta[]" id="precio-' + idx + '" min="0.01" step="0.01" required ' +
+                        'oninput="calcularFila(' + idx + ')" class="campo-input" placeholder="0">' +
+                    '<p class="item-row-ayuda">Lo que le cobras al cliente por cada unidad de venta.</p>' +
+                '</div>' +
+
+                '<div>' +
+                    '<span class="item-row-label">Desc. %</span>' +
+                    '<input type="number" name="descuento_porcentaje[]" id="desc-' + idx + '" min="0" max="100" step="0.01" value="0" ' +
+                        'oninput="calcularFila(' + idx + ')" class="campo-input" style="text-align:center;">' +
+                    '<p class="item-row-ayuda">Descuento sobre esta línea, si aplica.</p>' +
+                '</div>' +
+
+                '<div>' +
+                    '<span class="item-row-label">Subtotal</span>' +
+                    '<div style="position:relative;">' +
+                        '<span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:#9CA3AF;font-size:.8rem;">$</span>' +
+                        '<input type="text" id="subvisual-' + idx + '" value="0" readonly class="campo-input" ' +
+                            'style="padding-left:22px;text-align:right;background:#fff;font-weight:700;color:#00875F;cursor:not-allowed;">' +
+                    '</div>' +
+                    '<p class="item-row-ayuda">Cantidad × precio, menos el descuento.</p>' +
+                '</div>' +
+
+                '<button type="button" onclick="quitarFila(' + idx + ')" title="Quitar producto" ' +
+                    'style="width:26px;height:26px;border-radius:6px;background:#fde8e8;border:none;color:#E53935;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-bottom:4px;">' +
+                    '<i class="fas fa-times" style="font-size:.65rem;"></i>' +
+                '</button>' +
+
+            '</div>' +
         '</div>';
 
     container.appendChild(div);
